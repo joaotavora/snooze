@@ -8,6 +8,7 @@
 ;;; "receiving".
 ;;; 
 (defpackage :resting-verbs (:use) (:export #:http-verb #:get #:post #:put #:delete
+                                           #:content-verb
                                            #:receiving-verb
                                            #:sending-verb))
 (in-package :resting-verbs)
@@ -16,8 +17,10 @@
 
 (cl:defclass delete (http-verb) ())
 
-(cl:defclass receiving-verb (http-verb) ())
-(cl:defclass sending-verb   (http-verb) ())
+(cl:defclass content-verb (http-verb) ())
+
+(cl:defclass receiving-verb (content-verb) ())
+(cl:defclass sending-verb   (content-verb) ())
 
 (cl:defclass post (receiving-verb) ())
 (cl:defclass put  (receiving-verb) ())
@@ -26,7 +29,7 @@
 
 ;;; Content-types
 ;;;
-;;; Apropos the distinction between "receive" and "send" types, note
+;;; Apropos the distinction between normal and "send-any" types, note
 ;;; that in GET requests we are only interested in the request's
 ;;; "Accept" header, since GET never have useful bodies (1) and as
 ;;; such don't have "Content-Type".
@@ -34,7 +37,8 @@
 ;;; [1]: http://stackoverflow.com/questions/978061/http-get-with-request-body
 ;;;
 ;;; So, for GET requests, we make a inverted hierarchy of types for
-;;; dispatching on the various types of the "Accept:" header.
+;;; dispatching on the various types of the "Accept:" header. We do
+;;; this using MOP.
 ;;;
 (cl:in-package :resting)
 ;; (delete-package :resting-types)
@@ -114,7 +118,7 @@
              (or (and (eq designator 't)
                       (progn
                         (alexandria:simple-style-warning
-                         "Converting T in ~a to ~a"
+                         "Coercing verb-designating type T in ~a to ~s"
                               verb-spec 'resting-verbs:http-verb)
                         'resting-verbs:http-verb))
                  (find-class-1 (intern (string-upcase designator)
@@ -135,7 +139,7 @@
   (or (and (eq designator t)
            (progn
              (alexandria:simple-style-warning
-              "Converting content-type designator T to ~a"
+              "Coercing content-designating type designator T to ~s"
               'resting-types:content)
              'resting-types:content))
       (find-class-1 (intern (string-upcase designator) :resting-types))
@@ -154,19 +158,10 @@
              (send-any-symbol supertype-designator)
              (intern (string-upcase supertype-designator) :resting-types))))))
 
-(defun content-type-spec-or-lose (type-spec verb)
+(defun content-type-spec-or-lose-1 (type-spec)
   (labels ((type-designator-to-type (designator)
              (or 
-              (cond ((or (subtypep verb 'resting-verbs:receiving-verb)
-                         (subtypep verb 'resting-verbs:sending-verb))
-                     (type-designator-to-type-1 designator))
-                    (designator
-                     ;; In this case, bitch if the designator is not T
-                     ;;
-                     (assert (eq t designator) nil
-                             "For verb ~a, no specializations on Content-Type are allowed"
-                             verb)
-                     designator))
+              (type-designator-to-type-1 designator)
               (error "Sorry, don't know the content-type ~a" type-spec))))
     (cond ((and type-spec
                 (listp type-spec))
@@ -177,37 +172,17 @@
           (type-spec
            (list type-spec (type-designator-to-type t))))))
 
-;; half-assed tests for the DEFROUTE helpers
-;;
-;; (verb-spec-or-lose '(foo t)) ; (FOO RESTING-VERBS:HTTP-VERB)
-;; (verb-spec-or-lose :get)     ; (VERB RESTING-VERBS:GET)
-;; (verb-spec-or-lose "GET")    ; (VERB RESTING-VERBS:GET)
-;; (verb-spec-or-lose '(v resting-verbs:get)) ;(V RESTING-VERBS:GET)
-
-;; (content-type-spec-or-lose '(foo t) 'resting-verbs:get)     ; (FOO RESTING-TYPES:CONTENT)
-;; (content-type-spec-or-lose '(foo "*/*") 'resting-verbs:get) ; (FOO RESTING-TYPES:CONTENT)
-;; (content-type-spec-or-lose :text/html 'resting-verbs:get)   ; (TYPE RESTING-TYPES:TEXT/HTML)
-;; (content-type-spec-or-lose "text/html" 'resting-verbs:get)  ; (TYPE RESTING-TYPES:TEXT/HTML)
-;; (content-type-spec-or-lose :text/* 'resting-verbs:get)      ; (TYPE RESTING-TYPES:TEXT)
-;; (content-type-spec-or-lose "text/*" 'resting-verbs:get)     ; (TYPE RESTING-TYPES:TEXT)
-;; (content-type-spec-or-lose 'foo 'resting-verbs:get)         ; (FOO RESTING-TYPES:CONTENT)
-;;  
-;; (content-type-spec-or-lose '(foo t) 'resting-verbs:put)     ; (FOO RESTING-TYPES:CONTENT)
-;; (content-type-spec-or-lose '(foo "*/*") 'resting-verbs:put) ; (FOO RESTING-TYPES:CONTENT)
-;; (content-type-spec-or-lose '(foo "text/*") 'resting-verbs:put) ; (FOO RESTING-TYPES:TEXT)
-;; (content-type-spec-or-lose '(foo "text/html") 'resting-verbs:put) ; (FOO RESTING-TYPES:TEXT/HTML)
-;; (content-type-spec-or-lose "text/html" 'resting-verbs:put) ; (TYPE RESTING-TYPES:TEXT/HTML)
-;; (content-type-spec-or-lose '"text/html" 'resting-verbs:put) ; (TYPE RESTING-TYPES:TEXT/HTML)
-;; (content-type-spec-or-lose '"text/html-typo" 'resting-verbs:put) ; error!
-;; (content-type-spec-or-lose 'foo 'resting-verbs:put); (FOO RESTING-TYPES:CONTENT)
-;; (content-type-spec-or-lose '(foo resting-types:text/html) 'resting-verbs:put) ; (FOO RESTING-TYPES:TEXT/HTML)
-;; (content-type-spec-or-lose '(foo resting-types:text-html-typo) 'resting-verbs:put) ; error!
-;; (content-type-spec-or-lose '(foo resting-types:text/html) 'resting-verbs:put); (FOO RESTING-TYPES:TEXT/HTML) ! autocorrects!
-
-;; (content-type-spec-or-lose 'foo 'resting-verbs:http-verb); (FOO T)
-;; (content-type-spec-or-lose "text/html" 'resting-verbs:http-verb) ; error!
-;; (content-type-spec-or-lose "text/html" 'resting-verbs:delete) ;error!
-
+(defun content-type-spec-or-lose (type-spec verb)
+  (cond ((subtypep verb 'resting-verbs:content-verb)
+         (content-type-spec-or-lose-1 type-spec))
+        ((and type-spec (listp type-spec))
+         (assert (eq t (second type-spec))
+                 nil
+                 "For verb ~a, no specializations on Content-Type are allowed"
+                 verb)
+         type-spec)
+        (t
+         (list type-spec t))))
 
 
 ;; DEFROUTE macro
@@ -255,21 +230,12 @@
                                         method-name) package))
           (cdr words))))
 
-
-
-;; (parse-uri "/bla/ble") ; => ("bla" "ble")
-
 (defun parse-accept-header (string)
   "Return a list of symbols designating RESTING-RECV-TYPE objects.
 In the correct order" 
   (loop for a in (cl-ppcre:split ",\\s*" string)
         when (type-designator-to-type-1 a 'for-sending)
           collect it))
-
-;; (subtypep 'resting-types:send-any-text 'resting-types:text/html) ; => T T
-;; (subtypep 'resting-types:send-anything 'resting-types:text/html) ; => T T
-;; (subtypep 'resting-types:send-any-text 'resting-types:application/xml) ; => NIL T
-;; (find-class 'resting-types:send-anything)
 
 ;; (parse-accept-header "text/html, bla/ble, text/*, */*")(RESTING-TYPES:TEXT/HTML RESTING-TYPES::SEND-ANY-TEXT RESTING-TYPES:SEND-ANYTHING)
 
@@ -321,6 +287,7 @@ In the correct order"
 
 (defmethod hunchentoot:acceptor-status-message ((acceptor rest-acceptor) status-code &key
                                                 &allow-other-keys)
+  (declare (ignore status-code))
   (call-next-method))
 
 
