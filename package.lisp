@@ -3,4 +3,5 @@
   (:nicknames :rip)
   (:export
    #:defroute
-   #:rest-acceptor))
+   #:rest-acceptor
+   #:define-content))
