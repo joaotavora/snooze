@@ -188,6 +188,15 @@
 ;; DEFROUTE macro
 ;; 
 (define-condition no-such-route (simple-error) ())
+(define-condition http-condition (simple-error)
+  ((status-code :initarg :code :initform (error "Must supply a HTTP status code.")
+                :accessor code)))
+(define-condition |404| (http-condition)
+  () (:default-initargs :code 404))
+
+(defmethod print-object ((c http-condition) s)
+  (print-unreadable-object (c s :type nil :identity nil)
+      (format s "HTTP condition ~a" (code c))))
 
 (defmacro defroute (name-or-name-and-qualifier (verb-spec type-spec &rest args) &body body)
   (let* ((name-and-qualifier (alexandria:ensure-list name-or-name-and-qualifier))
@@ -214,7 +223,16 @@
 ;; (defroute :around (verb type user-id album-id) bla)
 
 (defclass rest-acceptor (hunchentoot:acceptor)
-  ((route-packages :initform (list *package*) :initarg :route-packages :accessor route-packages))
+  ((route-packages :initform (list *package*) :initarg :route-packages :accessor route-packages
+                   :documentation
+                   "A list of packages where generic functions whose
+                   names name REST resource exist for the acceptor. ")
+   (method-regexp :initform "/([^/]+)(?:/(.*))?" :accessor method-regexp
+                  :documentation
+                  "A regular expression that when applied to an URI
+                  path should contain two capturing subgroups, one for
+                  the REST resource and another for the arguments to
+                  pass to the verb."))
   (:documentation "An acceptor for RESTful routes"))
 
 
@@ -222,13 +240,42 @@
 ;;; Helpers for our HUNCHENTOOT:ACCEPTOR-DISPATCH-REQUEST method
 ;;;
 ;;; FIXME: very naive, need lots of work
-(defun parse-uri (uri packages)
-  (let* ((words (cl-ppcre:split "/" uri :start 1))
-         (method-name (or (first words) "root")))
-    (cons (loop for package in packages
-                  thereis (find-symbol (string-upcase
-                                        method-name) package))
-          (cdr words))))
+;;;
+(defun scan-to-strings* (regex string)
+  (coerce (nth-value 1
+                  (cl-ppcre:scan-to-strings regex
+                                            string))
+          'list))
+
+(defun parse-args-in-uri (args-string)
+  (let* ((required-and-query-and-fragment
+           (scan-to-strings*
+            "/?([^?]+)(?:\\?([^#]+))?(?:#(.*))?$"
+            args-string))
+         (required-args (cl-ppcre:split "/" (first required-and-query-and-fragment)))
+         (keyword-args (loop for maybe-pair in (cl-ppcre:split "[;&]" (second required-and-query-and-fragment))
+                             for (key-name value) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
+                             when (and key-name value)
+                               append (list (intern (string-upcase key-name) :keyword)
+                                            value)))
+         (fragment (third required-and-query-and-fragment)))
+    (append required-args
+            keyword-args
+            (when fragment
+              (list 'resting:fragment fragment)))))
+
+(defun parse-uri (uri acceptor)
+  "Parse URI and return actual arguments for a lambda list."
+  ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
+  (let* ((method-regexp (method-regexp acceptor))
+         (method-and-rest
+           (scan-to-strings* method-regexp uri))
+         (method-name (first method-and-rest))
+         (actual-arguments (parse-args-in-uri (second method-and-rest))))
+    (values (loop for package in (route-packages acceptor)
+                    thereis (find-symbol (string-upcase
+                                          method-name) package))
+            actual-arguments)))
 
 (defun parse-accept-header (string)
   "Return a list of symbols designating RESTING-RECV-TYPE objects.
@@ -252,37 +299,48 @@ In the correct order"
          ;; FIXME: maybe use singletons here
          (verb (and verb-designator
                     (make-instance verb-designator))) 
-         (method-and-args (parse-uri (hunchentoot:script-name request) (route-packages acceptor)))
+         (method-and-args
+           (multiple-value-list
+            (parse-uri (hunchentoot:script-name request) acceptor)))
          (route-method (car method-and-args)))
     (if (and route-method verb)
-        (etypecase verb
-          ;; For the Accept: header
-          (resting-verbs:sending-verb
-           (let ((try-list accept-designators))
-             (loop do (unless try-list
-                        (error 'no-such-route
-                               :format-control
-                               "No matching routes found for ~a"
-                               :format-arguments
-                                (list accept-designators)))
-                     thereis
-                     (block try-again
-                       (handler-bind ((no-such-route
-                                        #'(lambda (c)
-                                            (declare (ignore c))
-                                            (return-from try-again nil))))
-                         (apply route-method
-                                verb
-                                ;; FIXME: maybe use singletons here
-                                (make-instance (pop try-list))
-                                (cdr method-and-args)))))))
-          (resting-verbs:receiving-verb
-           (apply route-method
-                  verb
-                  (make-instance (or content-type-designator
-                                     'resting-types:content)
-                                 :content-stream 'something)
-                  (cdr method-and-args))))
+        (handler-bind ((http-condition
+                         #'(lambda (c)
+                             (when hunchentoot:*catch-errors-p*
+                               (setf (hunchentoot:return-code*) (code c))
+                               (hunchentoot:abort-request-handler)))))
+          (etypecase verb
+            ;; For the Accept: header
+            (resting-verbs:sending-verb
+             (let ((try-list accept-designators)
+                   (retval))
+               (loop do (unless try-list
+                          (error 'no-such-route
+                                 :format-control
+                                 "No matching routes found for ~a"
+                                 :format-arguments
+                                 (list accept-designators)))
+                       thereis
+                       (block try-again
+                         (handler-bind ((no-such-route
+                                          #'(lambda (c)
+                                              (declare (ignore c))
+                                              (return-from try-again nil))))
+                           (setq retval
+                                 (apply route-method
+                                        verb
+                                        ;; FIXME: maybe use singletons here
+                                        (make-instance (pop try-list))
+                                        (second method-and-args)))
+                           t)))
+               retval))
+            (resting-verbs:receiving-verb
+             (apply route-method
+                    verb
+                    (make-instance (or content-type-designator
+                                       'resting-types:content)
+                                   :content-stream 'something)
+                    (second method-and-args)))))
         (call-next-method))))
 
 (defmethod hunchentoot:acceptor-status-message ((acceptor rest-acceptor) status-code &key

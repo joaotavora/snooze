@@ -3,19 +3,21 @@
   (:import-from  #:resting
                  #:verb-spec-or-lose
                  #:content-type-spec-or-lose-1
-                 #:parse-uri))
+                 #:parse-uri
+                 #:parse-args-in-uri))
 (in-package :resting-tests)
 
-
 (deftest parse-verbs ()
-  (is (equal (verb-spec-or-lose '(foo t)) '(FOO RESTING-VERBS:HTTP-VERB)))
-  (is (equal (verb-spec-or-lose :get) '(RESTING::VERB RESTING-VERBS:GET)))
-  (is (equal (verb-spec-or-lose "GET") '(RESTING::VERB RESTING-VERBS:GET)))
-  (is (equal (verb-spec-or-lose '(v resting-verbs:get)) '(V RESTING-VERBS:GET))))
+  (handler-bind ((style-warning #'muffle-warning))
+    (is (equal (verb-spec-or-lose '(foo t)) '(FOO RESTING-VERBS:HTTP-VERB)))
+    (is (equal (verb-spec-or-lose :get) '(RESTING::VERB RESTING-VERBS:GET)))
+    (is (equal (verb-spec-or-lose "GET") '(RESTING::VERB RESTING-VERBS:GET)))
+    (is (equal (verb-spec-or-lose '(v resting-verbs:get)) '(V RESTING-VERBS:GET)))))
 
 (deftest parse-content-types ()
   (macrolet ((cts (x)
-               `(content-type-spec-or-lose-1 ,x)))
+               `(handler-bind ((style-warning #'muffle-warning))
+                 (content-type-spec-or-lose-1 ,x))))
     (is (equal (cts '(foo t)) '(FOO RESTING-TYPES:CONTENT)))
     (is (equal (cts '(foo "*/*")) '(FOO RESTING-TYPES:CONTENT)))
     (is (equal (cts :text/html) '(TYPE RESTING-TYPES:TEXT/HTML)))
@@ -34,10 +36,14 @@
   (is (subtypep 'resting-types:send-anything 'resting-types:text/html))
   (is (not (subtypep 'resting-types:send-any-text 'resting-types:application/xml))))
 
-(defroute bla (a b c) (declare (ignore a b c)))
+(defroute bla (a b c &key foo resting:fragment &allow-other-keys)
+  (declare (ignore resting:fragment foo a b c)))
 
 (deftest test-parse-uri ()
-  (is (equal (parse-uri "/bla/ble" (list *package*))
-             '(BLA "ble"))))
+  (is (equal (parse-args-in-uri "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal")
+             '("bla" "ble" "bli" :FOO "fonix" :BAR "fotrix" RESTING:FRAGMENT "coisoetal")))
+  (is (eq 'bla
+          (parse-uri "frob/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
+                     (make-instance 'rest-acceptor)))))
 
 
