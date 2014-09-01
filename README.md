@@ -57,7 +57,7 @@ now create some Lisp file with
                     :key #'todo-id)))
     (if todo
         (todo-task todo)
-        (signal 'resting:404))))
+        (error 'resting:404))))
 
 (resting:defroute todos (:get "text/plain")
   (format nil "~{~a~^~%~}" (mapcar #'todo-task *todos*)))

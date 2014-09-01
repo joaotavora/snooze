@@ -4,4 +4,7 @@
   (:export
    #:defroute
    #:rest-acceptor
-   #:define-content))
+   #:define-content
+   #:fragment
+   #:|404|
+   #:explain-condition))

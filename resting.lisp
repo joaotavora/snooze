@@ -65,14 +65,6 @@
                             (cons superclass
                                   (closer-mop:class-direct-superclasses class)))))
 
-(defun add-direct-superclass-test (class superclass)
-  (closer-mop:add-direct-subclass superclass class)
-  (closer-mop:ensure-class (class-name class)
-                           :direct-superclasses
-                           (remove-duplicates
-                            (cons superclass
-                                  (closer-mop:class-direct-superclasses class)))))
-
 (defmacro define-content (type-designator supertype-designator)
   (let ((type (intern-safe type-designator :resting-types))
         (supertype (intern-safe supertype-designator :resting-types))
@@ -184,55 +176,112 @@
         (t
          (list type-spec t))))
 
+(defun ensure-atom (thing)
+  (if (listp thing)
+      (ensure-atom (first thing))
+      thing))
+
 
-;; DEFROUTE macro
+;; Conditions
 ;; 
-(define-condition no-such-route (simple-error) ())
 (define-condition http-condition (simple-error)
   ((status-code :initarg :code :initform (error "Must supply a HTTP status code.")
                 :accessor code)))
+(define-condition no-such-route (http-condition)
+  () (:default-initargs :code 404))
 (define-condition |404| (http-condition)
   () (:default-initargs :code 404))
 
 (defmethod print-object ((c http-condition) s)
   (print-unreadable-object (c s :type nil :identity nil)
-      (format s "HTTP condition ~a" (code c))))
+    (format s "HTTP condition ~a" (code c))))
 
-(defmacro defroute (name-or-name-and-qualifier (verb-spec type-spec &rest args) &body body)
-  (let* ((name-and-qualifier (alexandria:ensure-list name-or-name-and-qualifier))
-         (name (first name-and-qualifier))
-         (qualifier (second name-and-qualifier))
-         (verb-spec (verb-spec-or-lose verb-spec))
-         (type-spec (content-type-spec-or-lose type-spec (second verb-spec))))
+(defgeneric explain-condition (acceptor c &rest)
+  (:documentation
+   "In the context of ACCEPTOR, explain exceptional condition C to client.
+This function can/should set HUNCHENTOOT:CONTENT-TYPE* on the current
+reply. CLIENT-ACCEPT-DESIGNATORS is a list of symbols designating
+subclasses of RESTING-TYPES:CONTENT that the client wanted, in case
+you want to use it."))
+
+(defmethod explain-condition (acceptor c &key client-accept-designators)
+  (declare (ignore acceptor client-accept-designators))
+  (setf (hunchentoot:content-type*) "text/plain")
+  (format nil "~?" (simple-condition-format-control c)
+          (simple-condition-format-arguments c)))
+
+
+;; DEFROUTE macro
+;; 
+(defmacro defroute (name &body args)
+  (let* (;; find the qualifiers and lambda list
+         ;; 
+         (first-parse
+           (loop for args on args
+                 if (listp (first args))
+                   return (list qualifiers (first args) (cdr args))
+                 else
+                   collect (first args) into qualifiers))
+         (qualifiers (first first-parse))
+         (lambda-list (second first-parse))
+         (body (third first-parse))
+         ;; now parse body
+         ;; 
+         (parsed-body (multiple-value-list (alexandria:parse-body body)))
+         (remaining (first parsed-body))
+         (declarations (second parsed-body))
+         (docstring (third parsed-body))
+         ;; Add syntactic sugar for the first two specializers in the
+         ;; lambda list
+         ;; 
+         (verb-spec (verb-spec-or-lose (first lambda-list)))
+         (type-spec (content-type-spec-or-lose (second lambda-list) (second verb-spec)))
+         (proper-lambda-list
+           `(,verb-spec ,type-spec ,@(nthcdr 2 lambda-list)))
+         (simplified-lambda-list
+           (mapcar #'ensure-atom proper-lambda-list)))
     `(progn
-       (defmethod ,name ,@(and (keywordp qualifier) (list qualifier))
-         (,verb-spec ,type-spec ,@args)
-         ;; FIXME: only do this if the reply should take a body
-         ;; (i.e. is a GET)
-         (setf (hunchentoot:content-type* hunchentoot:*reply*)
-               ,(string-downcase (second type-spec)))
-         (funcall #'(lambda () ,@body)))
+       (defmethod ,name ,@qualifiers
+         ,proper-lambda-list
+         ,@(if docstring `(,docstring))
+         ,@declarations
+         ,@remaining)
        (defmethod no-applicable-method ((f (eql (function ,name))) &rest args)
          (error 'no-such-route
                 :format-control "No applicable route ~%  ~a~%when called with args ~%  ~a" 
                 :format-arguments (list f args)))
-       (setf (get ',name 'resting::route) t))))
+       (setf (get ',name 'argchecker-dummy)
+             #'(lambda ,simplified-lambda-list
+                 (declare (ignore ,@(remove-if #'(lambda (sym)
+                                                   (eq #\& (aref (symbol-name sym) 0)))
+                                               simplified-lambda-list))))))))
 
 ;; (defroute picture (:GET "image/jpeg" user-id album-id) bla)
 ;; (defroute (picture :before) (:GET "image/jpeg" user-id album-id) bla)
 ;; (defroute :around (verb type user-id album-id) bla)
 
 (defclass rest-acceptor (hunchentoot:acceptor)
-  ((route-packages :initform (list *package*) :initarg :route-packages :accessor route-packages
-                   :documentation
-                   "A list of packages where generic functions whose
-                   names name REST resource exist for the acceptor. ")
-   (method-regexp :initform "/([^/]+)(?:/(.*))?" :accessor method-regexp
-                  :documentation
-                  "A regular expression that when applied to an URI
-                  path should contain two capturing subgroups, one for
-                  the REST resource and another for the arguments to
-                  pass to the verb."))
+  ((route-packages
+    :initform (list *package*)
+    :initarg :route-packages :accessor route-packages
+    :documentation
+    "A list of packages to look for routes.
+     Specifically, packages containing generic functions whose names
+     match the names of REST resources. ")
+   (resource-name-regexp
+    :initform "/([^/]+)" :initarg :resource-name-regexp
+    :accessor resource-name-regexp
+    :documentation
+    "A CL-PPCRE regular expression to match a REST resource's name.
+     When applied to an URI path should match a REST resource's
+     name. The remainder of the URI are the actual arguments for the
+     HTTP verbs that operate on that resource. The first regexp
+     capturing group, if any, is used for the resource's name.")
+   (fall-through-p
+    :initform nil :initarg :fall-through-p
+    :accessor fall-through-p
+    :documentation
+    "What to do if resource name extracted from URI doesn't match."))
   (:documentation "An acceptor for RESTful routes"))
 
 
@@ -267,11 +316,14 @@
 (defun parse-uri (uri acceptor)
   "Parse URI and return actual arguments for a lambda list."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
-  (let* ((method-regexp (method-regexp acceptor))
-         (method-and-rest
-           (scan-to-strings* method-regexp uri))
-         (method-name (first method-and-rest))
-         (actual-arguments (parse-args-in-uri (second method-and-rest))))
+  (let* ((resource-name-regexp (resource-name-regexp acceptor))
+         (scan-results (multiple-value-list (cl-ppcre:scan resource-name-regexp uri)))
+         (method-name
+           (apply #'subseq uri
+                  (if (plusp (length (third scan-results)))
+                      (list (aref (third scan-results) 0) (aref (fourth scan-results) 0))
+                      (list (first scan-results) (second scan-results)))))
+         (actual-arguments (parse-args-in-uri (subseq uri (second scan-results)))))
     (values (loop for package in (route-packages acceptor)
                     thereis (find-symbol (string-upcase
                                           method-name) package))
@@ -284,6 +336,18 @@ In the correct order"
         when (type-designator-to-type-1 a 'for-sending)
           collect it))
 
+(defun arglist-compatible-p (method args)
+  (let ((checker (get method 'argchecker-dummy)))
+    (cond ((null checker) t)
+          (t
+           (handler-case
+               (progn
+                 (apply checker
+                        (append '(dummyverb dummytype)
+                                args))
+                 t)
+             (error () nil))))))
+
 ;; (parse-accept-header "text/html, bla/ble, text/*, */*")(RESTING-TYPES:TEXT/HTML RESTING-TYPES::SEND-ANY-TEXT RESTING-TYPES:SEND-ANYTHING)
 
 (defun parse-content-type-header (string)
@@ -293,55 +357,72 @@ In the correct order"
 (defmethod hunchentoot:acceptor-dispatch-request ((acceptor rest-acceptor) request)
   (let* ((accept-designators (parse-accept-header (hunchentoot:header-in :accept request)))
          (content-type-designator (parse-content-type-header (hunchentoot:header-in :content-type request)))
-         (verb-designator (find-class-1
-                           (intern (string-upcase (hunchentoot:request-method request))
-                                   :resting-verbs)))
+         (verb-designator (or (find-class-1
+                               (intern (string-upcase (hunchentoot:request-method request))
+                                       :resting-verbs))
+                              (error "Can't find HTTP verb designator for request ~a!" request)))
          ;; FIXME: maybe use singletons here
          (verb (and verb-designator
                     (make-instance verb-designator))) 
          (method-and-args
            (multiple-value-list
             (parse-uri (hunchentoot:script-name request) acceptor)))
-         (route-method (car method-and-args)))
-    (if (and route-method verb)
-        (handler-bind ((http-condition
-                         #'(lambda (c)
-                             (when hunchentoot:*catch-errors-p*
-                               (setf (hunchentoot:return-code*) (code c))
-                               (hunchentoot:abort-request-handler)))))
-          (etypecase verb
-            ;; For the Accept: header
-            (resting-verbs:sending-verb
-             (let ((try-list accept-designators)
-                   (retval))
-               (loop do (unless try-list
-                          (error 'no-such-route
-                                 :format-control
-                                 "No matching routes found for ~a"
-                                 :format-arguments
-                                 (list accept-designators)))
-                       thereis
-                       (block try-again
-                         (handler-bind ((no-such-route
-                                          #'(lambda (c)
-                                              (declare (ignore c))
-                                              (return-from try-again nil))))
-                           (setq retval
-                                 (apply route-method
-                                        verb
-                                        ;; FIXME: maybe use singletons here
-                                        (make-instance (pop try-list))
+         (route-method (first method-and-args))
+         (route-arguments (second method-and-args)))
+    (handler-bind ((http-condition
+                     #'(lambda (c)
+                         ;; FIXME: make this a restart
+                         (when hunchentoot:*catch-errors-p*
+                           (setf (hunchentoot:return-code*) (code c))
+                           (hunchentoot:abort-request-handler
+                            (explain-condition acceptor c
+                                               :client-accept-designators accept-designators))))))
+      (cond ((not route-method)
+             (if (fall-through-p acceptor)
+                 (call-next-method)
+                 (error 'no-such-route
+                        :format-control
+                        "So sorry, but that URI doesn't match any REST resources")))
+            ((not (arglist-compatible-p route-method
                                         (second method-and-args)))
-                           t)))
-               retval))
-            (resting-verbs:receiving-verb
-             (apply route-method
-                    verb
-                    (make-instance (or content-type-designator
-                                       'resting-types:content)
-                                   :content-stream 'something)
-                    (second method-and-args)))))
-        (call-next-method))))
+             (error 'no-such-route
+                    :format-control
+                    "Too many, too few, or unsupported query arguments for REST resource ~a"
+                    :format-arguments
+                    (list route-method)))
+            (t
+             (etypecase verb
+               ;; For the Accept: header
+               (resting-verbs:sending-verb
+                (let ((try-list accept-designators)
+                      (retval))
+                  (loop do (unless try-list
+                             (error 'no-such-route
+                                    :format-control
+                                    "No matching routes for verb ~a on resource ~a and accept list ~a"
+                                    :format-arguments
+                                    (list verb route-method accept-designators)))
+                          thereis
+                          (block try-again
+                            (handler-bind ((no-such-route
+                                             #'(lambda (c)
+                                                 (declare (ignore c))
+                                                 (return-from try-again nil))))
+                              (setq retval
+                                    (apply route-method
+                                           verb
+                                           ;; FIXME: maybe use singletons here
+                                           (make-instance (pop try-list))
+                                           route-arguments))
+                              t)))
+                  retval))
+               (resting-verbs:receiving-verb
+                (apply route-method
+                       verb
+                       (make-instance (or content-type-designator
+                                          'resting-types:content)
+                         :content-stream 'something)
+                       route-arguments))))))))
 
 (defmethod hunchentoot:acceptor-status-message ((acceptor rest-acceptor) status-code &key
                                                 &allow-other-keys)

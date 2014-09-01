@@ -40,10 +40,22 @@
   (declare (ignore resting:fragment foo a b c)))
 
 (deftest test-parse-uri ()
-  (is (equal (parse-args-in-uri "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal")
-             '("bla" "ble" "bli" :FOO "fonix" :BAR "fotrix" RESTING:FRAGMENT "coisoetal")))
-  (is (eq 'bla
-          (parse-uri "frob/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
-                     (make-instance 'rest-acceptor)))))
+  (multiple-value-bind (route args)
+      (parse-uri "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
+                 (make-instance 'rest-acceptor))
+    (is (equal args
+               '("ble" "bli" :FOO "fonix" :BAR "fotrix" RESTING:FRAGMENT "coisoetal")))
+    (is (eq 'bla route)))
+  (multiple-value-bind (route args)
+      (parse-uri "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
+                 (make-instance 'rest-acceptor
+                   :resource-name-regexp "/ignored/([^/]+)/"))
+    (is (equal args
+               '("ble" "bli" :FOO "fonix" :BAR "fotrix" RESTING:FRAGMENT "coisoetal")))
+    (is (eq 'bla route)))
+  (multiple-value-bind (route args)
+      (parse-uri "/bla/ble/bli" (make-instance 'rest-acceptor))
+    (is (equal args '("ble" "bli")))
+    (is (eq 'bla route))))
 
 
