@@ -83,7 +83,8 @@
         (todo-task todo)
         (error 'resting:404 :format-control "No such todo!"))))
 
-(resting:define-content "application/json")
+(eval-when (:compile-toplevel :load-toplevel :execute)
+ (resting:define-content "application/json"))
 
 (resting:defresource todos (method content))
 
@@ -117,10 +118,8 @@
            (unless (hunchentoot::acceptor-listen-socket acceptor)
              (hunchentoot:start acceptor))
            (let ((actual-port
-                   #+allegro
-                   (usocket:get-local-port (hunchentoot::acceptor-listen-socket acceptor))
-                   #-allegro
-                   (error "sorry, this test doesn't work")))
+                   #+(or allegro sbcl)
+                   (usocket:get-local-port (hunchentoot::acceptor-listen-socket acceptor))))
              (with-request (:uri "/todo/1") (nil code) (is (= 200 code)))
              (with-request (:uri "/todo/10") (nil code) (is (= 404 code)))
              ;; Test keywords args
@@ -142,17 +141,23 @@
              (with-request (:uri "/todo/1"
                             :accept "application/json;text/plain") (nil code) (is (= 404 code)))
              (with-request (:uri "/todos"
-                            :accept "application/json;text/plain") (answer code)
+                            :accept "application/json;text/plain") (answer code headers)
                (is (= 200 code))
-               (is (cl-ppcre:scan "NOTREALLYJSON" answer)))
+               (is (not (stringp answer)))
+               (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
+               (is (string= (cdr (find :content-type headers :key #'car))
+                            "APPLICATION/JSON")))
              (with-request (:uri "/todos"
-                            :accept "application/*;text/plain") (answer code)
+                            :accept "application/*;text/plain") (answer code headers)
                (is (= 200 code))
-               (is (cl-ppcre:scan "NOTREALLYJSON" answer)))
+               (is (not (stringp answer)))
+               (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
+               (is (string= (cdr (find :content-type headers :key #'car))
+                            "APPLICATION/JSON")))
              (with-request (:uri "/todos"
                             :accept "text/plain;application/json") (answer code)
                (is (= 200 code))
-               (is (not (cl-ppcre:scan "NOTREALLYJSON" answer))))))
+               (is (stringp answer)))))
       (setq hunchentoot:*catch-errors-p* saved-catch-errors)
       (unless use-this-acceptor
         (hunchentoot:stop acceptor)))))

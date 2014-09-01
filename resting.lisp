@@ -48,14 +48,14 @@ Should return a list equal to ACTUAL-ARGUMENTS, which is a list of
 strings, but where some strings have been converted to other types.
 The default method tries to convert every arguments to a number."))
 
-(defgeneric expand-content-type (acceptor content-type-class resource)
-  (:method (acceptor content-type-class resource)
+(defgeneric expand-content-type (acceptor resource content-type-class)
+  (:method (acceptor resource content-type-class)
     (declare (ignore acceptor resource))
     (list content-type-class))
-  (:method (acceptor (content-type-class supertype-metaclass) resource)
-    (declare (ignore resource))
+  (:method (acceptor resource (content-type-class supertype-metaclass))
     (reduce #'append
-            (mapcar (alexandria:curry #'expand-content-type acceptor)
+            (mapcar
+             (alexandria:curry #'expand-content-type acceptor resource)
                     (closer-mop:class-direct-subclasses content-type-class))))
   (:documentation
    "For ACCEPTOR and RESOURCE, expand CONTENT-TYPE-CLASS.
@@ -107,7 +107,16 @@ and completely expands the wildcard content-type."))
 (defpackage :resting-types (:use) (:export #:content))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+
   (defclass supertype-metaclass (standard-class) ())
+
+  (defmethod closer-mop:validate-superclass ((class supertype-metaclass)
+                                             (superclass standard-class))
+    t)
+
+  (defmethod closer-mop:validate-superclass ((superclass standard-class)
+                                             (class supertype-metaclass))
+    t)
 
   (defclass resting-types:content ()
     ((content-stream :initarg :content-stream))
@@ -117,7 +126,14 @@ and completely expands the wildcard content-type."))
     (intern (string-upcase designator) package))
   (defun send-any-symbol (supertype)
     (intern (string-upcase (format nil "SEND-ANY-~a" supertype))
-            :resting-types)))
+            :resting-types))
+  (defun scan-to-strings* (regex string)
+    (coerce (nth-value 1
+                       (cl-ppcre:scan-to-strings regex
+                                                 string))
+            'list)))
+
+
 
 (defmacro define-content (type-designator
                           &optional (supertype-designator
@@ -333,14 +349,6 @@ and completely expands the wildcard content-type."))
 
 ;;; Helpers for our HUNCHENTOOT:ACCEPTOR-DISPATCH-REQUEST method
 ;;;
-;;; FIXME: very naive, need lots of work
-;;;
-(defun scan-to-strings* (regex string)
-  (coerce (nth-value 1
-                  (cl-ppcre:scan-to-strings regex
-                                            string))
-          'list))
-
 (defun parse-args-in-uri (args-string)
   (let* ((required-and-query-and-fragment
            (scan-to-strings*
@@ -381,7 +389,7 @@ and completely expands the wildcard content-type."))
                                                    media-range-and-params))
         for class = (find-content-class media-range)
         when class
-          append (expand-content-type acceptor class resource)))
+          append (expand-content-type acceptor resource class)))
 
 (defun arglist-compatible-p (method args)
   (handler-case
@@ -455,13 +463,20 @@ and completely expands the wildcard content-type."))
                                              #'(lambda (c)
                                                  (declare (ignore c))
                                                  (return-from try-again nil))))
-                              (setq retval
-                                    (apply resource
-                                           verb
-                                           ;; FIXME: maybe use singletons here
-                                           (make-instance (class-name (pop try-list)))
-                                           route-arguments))
-                              t)))
+                              ;; autosetting the reply's content-type
+                              ;; before the method call gives the
+                              ;; route a chance to override it.
+                              ;;
+                              (let ((content-type (pop try-list)))
+                                (setf (hunchentoot:content-type*)
+                                      (string (class-name content-type)))
+                                (setq retval
+                                      (apply resource
+                                             verb
+                                             ;; FIXME: maybe use singletons here
+                                             (make-instance (class-name content-type))
+                                             route-arguments))
+                                t))))
                   retval))
                (resting-verbs:receiving-verb
                 (apply resource
