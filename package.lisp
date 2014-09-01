@@ -7,4 +7,5 @@
    #:define-content
    #:fragment
    #:|404|
-   #:explain-condition))
+   #:explain-condition
+   #:defresource))

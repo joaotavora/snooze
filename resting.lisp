@@ -27,13 +27,11 @@
     "What to do if resource name extracted from URI doesn't match."))
   (:documentation "An acceptor for RESTful routes"))
 
-(defgeneric explain-condition (acceptor c &rest)
+(defgeneric explain-condition (acceptor c)
   (:documentation
    "In the context of ACCEPTOR, explain exceptional condition C to client.
 New methods added can/should set HUNCHENTOOT:CONTENT-TYPE* on the
-current reply. CLIENT-ACCEPT-DESIGNATORS is a list of symbols
-designating subclasses of RESTING-TYPES:CONTENT that the client
-wanted, in case you want to use it."))
+current reply."))
 
 (defgeneric convert-arguments (acceptor resource actual-arguments)
   (:method (acceptor resource args)
@@ -50,6 +48,22 @@ Should return a list equal to ACTUAL-ARGUMENTS, which is a list of
 strings, but where some strings have been converted to other types.
 The default method tries to convert every arguments to a number."))
 
+(defgeneric expand-content-type (acceptor content-type-class resource)
+  (:method (acceptor content-type-class resource)
+    (declare (ignore acceptor resource))
+    (list content-type-class))
+  (:method (acceptor (content-type-class supertype-metaclass) resource)
+    (declare (ignore resource))
+    (reduce #'append
+            (mapcar (alexandria:curry #'expand-content-type acceptor)
+                    (closer-mop:class-direct-subclasses content-type-class))))
+  (:documentation
+   "For ACCEPTOR and RESOURCE, expand CONTENT-TYPE-CLASS.
+Resource is a generic function designating a REST resource. The goal
+of this function is to expand wildcard content-types like
+\"application/*\" into specific content-types to probe RESOURCE with.
+The default implementation is very inneficient, it ignores resource
+and completely expands the wildcard content-type."))
 
 
 ;;; Verbs
@@ -80,67 +94,51 @@ The default method tries to convert every arguments to a number."))
 
 ;;; Content-types
 ;;;
-;;; Apropos the distinction between normal and "send-any" types, note
-;;; that in GET requests we are only interested in the request's
+;;; Note that in GET requests we are only interested in the request's
 ;;; "Accept" header, since GET never have useful bodies (1) and as
 ;;; such don't have "Content-Type".
 ;;;
 ;;; [1]: http://stackoverflow.com/questions/978061/http-get-with-request-body
 ;;;
-;;; So, for GET requests, we make a inverted hierarchy of types for
-;;; dispatching on the various types of the "Accept:" header. We do
-;;; this using MOP.
+;;; So, for GET requests, we the hierarchy is actually inverse.
 ;;;
 (cl:in-package :resting)
 ;; (delete-package :resting-types)
-(defpackage :resting-types (:use) (:export #:send-anything #:content))
+(defpackage :resting-types (:use) (:export #:content))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  (defclass supertype-metaclass (standard-class) ())
 
   (defclass resting-types:content ()
-    ((content-stream :initarg :content-stream)))
-  
-  (defclass resting-types:send-anything (resting-types:content) ())
+    ((content-stream :initarg :content-stream))
+    (:metaclass supertype-metaclass))
   
   (defun intern-safe (designator package)
     (intern (string-upcase designator) package))
   (defun send-any-symbol (supertype)
     (intern (string-upcase (format nil "SEND-ANY-~a" supertype))
-            :resting-types))
-  (defun add-direct-superclass (class superclass)
-    (closer-mop:add-direct-subclass superclass class)
-    (closer-mop:ensure-class (class-name class)
-                             :direct-superclasses
-                             (remove-duplicates
-                              (cons superclass
-                                    (closer-mop:class-direct-superclasses class))))))
+            :resting-types)))
 
-
-
-(defmacro define-content (type-designator supertype-designator)
-  (let ((type (intern-safe type-designator :resting-types))
-        (supertype (intern-safe supertype-designator :resting-types))
-        (send-any-supertype (send-any-symbol supertype-designator)))
+(defmacro define-content (type-designator
+                          &optional (supertype-designator
+                                     (first (scan-to-strings* "([^/]+)" type-designator))))
+  (let* ((type (intern-safe type-designator :resting-types))
+         (supertype (intern-safe supertype-designator :resting-types)))
     `(progn
        (unless (find-class ',supertype nil)
-         (defclass ,supertype (resting-types:content) ()))
-       (unless (find-class ',send-any-supertype nil)
-         (defclass ,send-any-supertype () ()))
+         (defclass ,supertype (resting-types:content) ()
+           (:metaclass supertype-metaclass) ))
        (defclass ,type (,supertype) ())
        (eval-when (:compile-toplevel :load-toplevel :execute)
-         (export '(,type ,supertype ,send-any-supertype) :resting-types))
-       (add-direct-superclass (find-class ',send-any-supertype) (find-class ',type))
-       (add-direct-superclass (find-class 'resting-types:send-anything)
-                              (find-class ',send-any-supertype)))))
+         (export '(,type ,supertype) :resting-types)))))
 
 (defmacro define-known-content-types ()
   `(progn
      ,@(loop for (type-spec . nil) in hunchentoot::*mime-type-list*
-             for matches = (nth-value 1 (cl-ppcre:scan-to-strings "((.*)/(.*))(;.*)?" type-spec))
+             for matches = (nth-value 1 (cl-ppcre:scan-to-strings "(.*/.*)(?:;.*)?" type-spec))
              for type = (and matches (aref matches 0))
-             for supertype = (and matches (aref matches 1))
-             when (and type supertype)
-               collect `(define-content ,type ,supertype))))
+             when type
+               collect `(define-content ,type))))
 
 
 ;;; Define some things at compile-time
@@ -178,35 +176,31 @@ The default method tries to convert every arguments to a number."))
           (verb-spec
            (list verb-spec 'resting-verbs:http-verb)))))
 
-(defun type-designator-to-type-1 (designator &optional for-sending)
+(defun find-content-class (designator)
   "Return DESIGNATOR as content-type class-defining symbol or nil."
   (or (and (eq designator t)
            (progn
              (alexandria:simple-style-warning
               "Coercing content-designating type designator T to ~s"
               'resting-types:content)
-             'resting-types:content))
-      (find-class-1 (intern (string-upcase designator) :resting-types))
-      (and (string= designator "*/*")
-           (if for-sending
-               'resting-types:send-anything
-               'resting-types:content))
+             (find-class 'resting-types:content)))
+      (find-class (intern (string-upcase designator) :resting-types) nil)
+      (and (string= designator "*/*") (find-class 'resting-types:content))
       (let* ((matches (nth-value 1
                                  (cl-ppcre:scan-to-strings
                                   "([^/]+)/\\*"
                                   (string-upcase designator))))
              (supertype-designator (and matches
                                         (aref matches 0))))
-        (find-class-1
-         (if for-sending
-             (send-any-symbol supertype-designator)
-             (intern (string-upcase supertype-designator) :resting-types))))))
+        (find-class
+         (intern (string-upcase supertype-designator) :resting-types)
+         nil))))
 
 (defun content-type-spec-or-lose-1 (type-spec)
   (labels ((type-designator-to-type (designator)
-             (or 
-              (type-designator-to-type-1 designator)
-              (error "Sorry, don't know the content-type ~a" type-spec))))
+             (let ((class (find-content-class designator)))
+               (if class (class-name class)
+                   (error "Sorry, don't know the content-type ~a" type-spec)))))
     (cond ((and type-spec
                 (listp type-spec))
            (list (first type-spec) (type-designator-to-type (second type-spec))))
@@ -235,6 +229,8 @@ The default method tries to convert every arguments to a number."))
 
 (defgeneric check-arguments (function actual-arguments))
 
+(defgeneric resource-p (function))
+
 (defmethod check-arguments (function actual-arguments)
   (declare (ignore function actual-arguments)))
 
@@ -256,20 +252,24 @@ The default method tries to convert every arguments to a number."))
   ((status-code :initarg :code :initform (error "Must supply a HTTP status code.")
                 :accessor code))
   (:default-initargs :format-control "An HTTP error has occured"))
+
 (define-condition no-such-route (http-condition)
   () (:default-initargs :code 404))
+
+(define-condition no-matching-content-types (no-such-route)
+  ((accepted-classes :initarg :accepted-classes :accessor accepted-classes))
+  (:default-initargs :format-control "\"Accept:\" header was too specific"))
 
 (define-error 404 "Not Found")
 ;; FIXME define more
 
 (defmethod print-object ((c http-condition) s)
-  (print-unreadable-object (c s :type nil :identity nil)
-    (format s "HTTP ~a: ~?" (code c)
+  (format s "HTTP ~a: ~?" (code c)
             (simple-condition-format-control c)
-            (simple-condition-format-arguments c))))
+            (simple-condition-format-arguments c)))
 
-(defmethod explain-condition (acceptor c &key client-accept-designators)
-  (declare (ignore acceptor client-accept-designators))
+(defmethod explain-condition (acceptor c)
+  (declare (ignore acceptor))
   (setf (hunchentoot:content-type*) "text/plain")
   (format nil "~?" (simple-condition-format-control c)
           (simple-condition-format-arguments c)))
@@ -290,7 +290,8 @@ The default method tries to convert every arguments to a number."))
           (declare (ignore ,@(remove-if #'(lambda (sym)
                                             (eq #\& (aref (symbol-name sym) 0)))
                                         lambda-list))))
-        actual-arguments))))
+        actual-arguments))
+     (defmethod resource-p ((f (eql (function ,name)))) t)))
 
 (defmacro defroute (name &body args)
   (let* (;; find the qualifiers and lambda list
@@ -320,14 +321,14 @@ The default method tries to convert every arguments to a number."))
          (simplified-lambda-list
            (mapcar #'ensure-atom proper-lambda-list)))
     `(progn
-       (defresource ,name ,simplified-lambda-list)
+       (unless (and (fboundp ',name)
+                    (resource-p (function ,name)))
+         (defresource ,name ,simplified-lambda-list))
        (defmethod ,name ,@qualifiers
          ,proper-lambda-list
          ,@(if docstring `(,docstring))
          ,@declarations
          ,@remaining))))
-
-
 
 
 ;;; Helpers for our HUNCHENTOOT:ACCEPTOR-DISPATCH-REQUEST method
@@ -373,12 +374,14 @@ The default method tries to convert every arguments to a number."))
                                           method-name) package))
             actual-arguments)))
 
-(defun parse-accept-header (string)
-  "Return a list of symbols designating RESTING-RECV-TYPE objects.
-In the correct order" 
-  (loop for a in (cl-ppcre:split ",\\s*" string)
-        when (type-designator-to-type-1 a 'for-sending)
-          collect it))
+(defun parse-accept-header (string acceptor resource)
+  "Return a list of class objects designating " 
+  (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
+        for media-range = (first (scan-to-strings* "([^;]*)"
+                                                   media-range-and-params))
+        for class = (find-content-class media-range)
+        when class
+          append (expand-content-type acceptor class resource)))
 
 (defun arglist-compatible-p (method args)
   (handler-case
@@ -390,15 +393,12 @@ In the correct order"
         t)
     (error () nil)))
 
-;; (parse-accept-header "text/html, bla/ble, text/*, */*")(RESTING-TYPES:TEXT/HTML RESTING-TYPES::SEND-ANY-TEXT RESTING-TYPES:SEND-ANYTHING)
-
 (defun parse-content-type-header (string)
   "Return a symbol designating a RESTING-SEND-TYPE object."
-  (type-designator-to-type-1 string))
+  (find-content-class string))
 
 (defmethod hunchentoot:acceptor-dispatch-request ((acceptor rest-acceptor) request)
-  (let* ((accept-designators (parse-accept-header (hunchentoot:header-in :accept request)))
-         (content-type-designator (parse-content-type-header (hunchentoot:header-in :content-type request)))
+  (let* ((content-class (parse-content-type-header (hunchentoot:header-in :content-type request)))
          (verb-designator (or (find-class-1
                                (intern (string-upcase (hunchentoot:request-method request))
                                        :resting-verbs))
@@ -411,15 +411,17 @@ In the correct order"
             (parse-uri (hunchentoot:request-uri request) acceptor)))
          (resource (first method-and-args))
          (route-arguments
-           (convert-arguments acceptor resource (second method-and-args))))
+           (convert-arguments acceptor resource (second method-and-args)))
+         (accepted-classes (parse-accept-header (hunchentoot:header-in :accept request)
+                                                acceptor
+                                                resource)))
     (handler-bind ((http-condition
                      #'(lambda (c)
                          ;; FIXME: make this a restart
                          (when hunchentoot:*catch-errors-p*
                            (setf (hunchentoot:return-code*) (code c))
                            (hunchentoot:abort-request-handler
-                            (explain-condition acceptor c
-                                               :client-accept-designators accept-designators))))))
+                            (explain-condition acceptor c))))))
       (cond ((not resource)
              (if (fall-through-p acceptor)
                  (call-next-method)
@@ -437,14 +439,16 @@ In the correct order"
              (etypecase verb
                ;; For the Accept: header
                (resting-verbs:sending-verb
-                (let ((try-list accept-designators)
+                (let ((try-list accepted-classes)
                       (retval))
                   (loop do (unless try-list
-                             (error 'no-such-route
+                             (error 'no-matching-content-types
+                                    :accepted-classes accepted-classes
                                     :format-control
-                                    "No matching routes for verb ~a on resource ~a and accept list ~a"
+                                    "No matching routes for verb~%  ~a~%on resource~%  ~a~%and accept list~%  ~a"
                                     :format-arguments
-                                    (list verb resource accept-designators)))
+                                    (list verb resource
+                                          (mapcar #'class-name accepted-classes))))
                           thereis
                           (block try-again
                             (handler-bind ((no-such-route
@@ -455,16 +459,15 @@ In the correct order"
                                     (apply resource
                                            verb
                                            ;; FIXME: maybe use singletons here
-                                           (make-instance (pop try-list))
+                                           (make-instance (class-name (pop try-list)))
                                            route-arguments))
                               t)))
                   retval))
                (resting-verbs:receiving-verb
                 (apply resource
                        verb
-                       (make-instance (or content-type-designator
-                                          'resting-types:content)
-                         :content-stream 'something)
+                       (make-instance (class-name content-class) 
+                                      :content-stream 'something)
                        route-arguments))))))))
 
 (defmethod hunchentoot:acceptor-status-message ((acceptor rest-acceptor) status-code &key
