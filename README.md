@@ -3,14 +3,15 @@ Resting
 
 Resting is RESTful framework for Hunchentoot based web servers.
 
-It's easy to creates routes:
+It invites you to use plain old CLOS generic functions to define routes:
 
 * matching HTTP verbs
 * matching headers `Content-Type` or `Accept`, according to the verb
 * matching certain URL patterns
 
-It's all done with CLOS (and a little mop), so every route is a method
-that you can trace, `M-.` into.
+It's all done with CLOS, so every route is a method that you can
+trace, `M-.` into, etc. There's a `defroute` macro for some syntactic
+sugar, but it isn't even mandatory.
 
 Up and running
 --------------
@@ -64,6 +65,16 @@ now create some Lisp file with
 
 (hunchentoot:start (make-instance 'resting:rest-acceptor :port 4242))
 ```
+
+CLOS-based tricks
+-----------------
+
+TODO...
+
+Controlling errors
+------------------
+
+TODO...
 
 Support
 -------
