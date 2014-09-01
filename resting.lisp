@@ -1,6 +1,56 @@
 (in-package #:resting)
 
+
+;;; API
+;;;
+(defclass rest-acceptor (hunchentoot:acceptor)
+  ((route-packages
+    :initform (list *package*)
+    :initarg :route-packages :accessor route-packages
+    :documentation
+    "A list of packages to look for routes.
+     Specifically, packages containing generic functions whose names
+     match the names of REST resources. ")
+   (resource-name-regexp
+    :initform "/([^/]+)" :initarg :resource-name-regexp
+    :accessor resource-name-regexp
+    :documentation
+    "A CL-PPCRE regular expression to match a REST resource's name.
+     When applied to an URI path should match a REST resource's
+     name. The remainder of the URI are the actual arguments for the
+     HTTP verbs that operate on that resource. The first regexp
+     capturing group, if any, is used for the resource's name.")
+   (fall-through-p
+    :initform nil :initarg :fall-through-p
+    :accessor fall-through-p
+    :documentation
+    "What to do if resource name extracted from URI doesn't match."))
+  (:documentation "An acceptor for RESTful routes"))
 
+(defgeneric explain-condition (acceptor c &rest)
+  (:documentation
+   "In the context of ACCEPTOR, explain exceptional condition C to client.
+New methods added can/should set HUNCHENTOOT:CONTENT-TYPE* on the
+current reply. CLIENT-ACCEPT-DESIGNATORS is a list of symbols
+designating subclasses of RESTING-TYPES:CONTENT that the client
+wanted, in case you want to use it."))
+
+(defgeneric convert-arguments (acceptor resource actual-arguments)
+  (:method (acceptor resource args)
+    (declare (ignore acceptor resource))
+    (mapcar #'(lambda (arg)
+                (let ((probe (let ((*read-eval* nil))
+                                 (read-from-string arg))))
+                  (if (numberp probe) probe arg)))
+            args))
+  (:documentation
+   "In the context of ACCEPTOR, make ACTUAL-ARGUMENTS fit RESOURCE.
+Should return a list equal to ACTUAL-ARGUMENTS, which is a list of
+strings, but where some strings have been converted to other types.
+The default method tries to convert every arguments to a number."))
+
+
+
 ;;; Verbs
 ;;;
 ;;; "Sending" and "Receiving" are always from the server's
@@ -55,15 +105,16 @@
     (intern (string-upcase designator) package))
   (defun send-any-symbol (supertype)
     (intern (string-upcase (format nil "SEND-ANY-~a" supertype))
-            :resting-types)))
+            :resting-types))
+  (defun add-direct-superclass (class superclass)
+    (closer-mop:add-direct-subclass superclass class)
+    (closer-mop:ensure-class (class-name class)
+                             :direct-superclasses
+                             (remove-duplicates
+                              (cons superclass
+                                    (closer-mop:class-direct-superclasses class))))))
 
-(defun add-direct-superclass (class superclass)
-  (closer-mop:add-direct-subclass superclass class)
-  (closer-mop:ensure-class (class-name class)
-                           :direct-superclasses
-                           (remove-duplicates
-                            (cons superclass
-                                  (closer-mop:class-direct-superclasses class)))))
+
 
 (defmacro define-content (type-designator supertype-designator)
   (let ((type (intern-safe type-designator :resting-types))
@@ -181,28 +232,40 @@
       (ensure-atom (first thing))
       thing))
 
+(defgeneric check-arguments (function actual-arguments))
+
+(defmethod check-arguments (function actual-arguments)
+  (declare (ignore function actual-arguments)))
+
 
 ;; Conditions
-;; 
+;;
+
+(defmacro define-error (code &optional default-msg)
+  (let ((sym (intern (princ-to-string code))))
+    `(progn
+       (define-condition ,sym (http-condition)
+         () (:default-initargs :code ,code))
+       (defun ,sym (&optional (format-control ,default-msg) format-args)
+         (error ',sym :format-control format-control :format-arguments format-args))
+       (eval-when (:compile-toplevel :load-toplevel :execute)
+         (export ',sym)))))
+
 (define-condition http-condition (simple-error)
   ((status-code :initarg :code :initform (error "Must supply a HTTP status code.")
-                :accessor code)))
+                :accessor code))
+  (:default-initargs :format-control "An HTTP error has occured"))
 (define-condition no-such-route (http-condition)
   () (:default-initargs :code 404))
-(define-condition |404| (http-condition)
-  () (:default-initargs :code 404))
+
+(define-error 404 "Not Found")
+;; FIXME define more
 
 (defmethod print-object ((c http-condition) s)
   (print-unreadable-object (c s :type nil :identity nil)
-    (format s "HTTP condition ~a" (code c))))
-
-(defgeneric explain-condition (acceptor c &rest)
-  (:documentation
-   "In the context of ACCEPTOR, explain exceptional condition C to client.
-This function can/should set HUNCHENTOOT:CONTENT-TYPE* on the current
-reply. CLIENT-ACCEPT-DESIGNATORS is a list of symbols designating
-subclasses of RESTING-TYPES:CONTENT that the client wanted, in case
-you want to use it."))
+    (format s "HTTP ~a: ~?" (code c)
+            (simple-condition-format-control c)
+            (simple-condition-format-arguments c))))
 
 (defmethod explain-condition (acceptor c &key client-accept-designators)
   (declare (ignore acceptor client-accept-designators))
@@ -211,8 +274,23 @@ you want to use it."))
           (simple-condition-format-arguments c)))
 
 
-;; DEFROUTE macro
-;; 
+;; DEFRESOURCE and DEFROUTE macros
+;;
+(defmacro defresource (name lambda-list &body body)
+  `(progn
+     (defgeneric ,name ,lambda-list ,@body)
+     (defmethod no-applicable-method ((f (eql (function ,name))) &rest args)
+       (error 'no-such-route
+              :format-control "No applicable route ~%  ~a~%when called with args ~%  ~a" 
+              :format-arguments (list f args)))
+     (defmethod check-arguments ((f (eql (function ,name))) actual-arguments)
+       (apply 
+        #'(lambda ,lambda-list
+            (declare (ignore ,@(remove-if #'(lambda (sym)
+                                              (eq #\& (aref (symbol-name sym) 0)))
+                                          lambda-list))))
+        actual-arguments))))
+
 (defmacro defroute (name &body args)
   (let* (;; find the qualifiers and lambda list
          ;; 
@@ -241,48 +319,13 @@ you want to use it."))
          (simplified-lambda-list
            (mapcar #'ensure-atom proper-lambda-list)))
     `(progn
+       (defgeneric ,name ,simplified-lambda-list)
        (defmethod ,name ,@qualifiers
          ,proper-lambda-list
          ,@(if docstring `(,docstring))
          ,@declarations
-         ,@remaining)
-       (defmethod no-applicable-method ((f (eql (function ,name))) &rest args)
-         (error 'no-such-route
-                :format-control "No applicable route ~%  ~a~%when called with args ~%  ~a" 
-                :format-arguments (list f args)))
-       (setf (get ',name 'argchecker-dummy)
-             #'(lambda ,simplified-lambda-list
-                 (declare (ignore ,@(remove-if #'(lambda (sym)
-                                                   (eq #\& (aref (symbol-name sym) 0)))
-                                               simplified-lambda-list))))))))
+         ,@remaining))))
 
-;; (defroute picture (:GET "image/jpeg" user-id album-id) bla)
-;; (defroute (picture :before) (:GET "image/jpeg" user-id album-id) bla)
-;; (defroute :around (verb type user-id album-id) bla)
-
-(defclass rest-acceptor (hunchentoot:acceptor)
-  ((route-packages
-    :initform (list *package*)
-    :initarg :route-packages :accessor route-packages
-    :documentation
-    "A list of packages to look for routes.
-     Specifically, packages containing generic functions whose names
-     match the names of REST resources. ")
-   (resource-name-regexp
-    :initform "/([^/]+)" :initarg :resource-name-regexp
-    :accessor resource-name-regexp
-    :documentation
-    "A CL-PPCRE regular expression to match a REST resource's name.
-     When applied to an URI path should match a REST resource's
-     name. The remainder of the URI are the actual arguments for the
-     HTTP verbs that operate on that resource. The first regexp
-     capturing group, if any, is used for the resource's name.")
-   (fall-through-p
-    :initform nil :initarg :fall-through-p
-    :accessor fall-through-p
-    :documentation
-    "What to do if resource name extracted from URI doesn't match."))
-  (:documentation "An acceptor for RESTful routes"))
 
 
 
@@ -337,16 +380,11 @@ In the correct order"
           collect it))
 
 (defun arglist-compatible-p (method args)
-  (let ((checker (get method 'argchecker-dummy)))
-    (cond ((null checker) t)
-          (t
-           (handler-case
-               (progn
-                 (apply checker
-                        (append '(dummyverb dummytype)
-                                args))
-                 t)
-             (error () nil))))))
+  (handler-case
+      (progn
+        (check-arguments (symbol-function method) args)
+        t)
+    (error () nil)))
 
 ;; (parse-accept-header "text/html, bla/ble, text/*, */*")(RESTING-TYPES:TEXT/HTML RESTING-TYPES::SEND-ANY-TEXT RESTING-TYPES:SEND-ANYTHING)
 
@@ -367,8 +405,9 @@ In the correct order"
          (method-and-args
            (multiple-value-list
             (parse-uri (hunchentoot:script-name request) acceptor)))
-         (route-method (first method-and-args))
-         (route-arguments (second method-and-args)))
+         (resource (first method-and-args))
+         (route-arguments
+           (convert-arguments acceptor resource (second method-and-args))))
     (handler-bind ((http-condition
                      #'(lambda (c)
                          ;; FIXME: make this a restart
@@ -377,19 +416,19 @@ In the correct order"
                            (hunchentoot:abort-request-handler
                             (explain-condition acceptor c
                                                :client-accept-designators accept-designators))))))
-      (cond ((not route-method)
+      (cond ((not resource)
              (if (fall-through-p acceptor)
                  (call-next-method)
                  (error 'no-such-route
                         :format-control
                         "So sorry, but that URI doesn't match any REST resources")))
-            ((not (arglist-compatible-p route-method
+            ((not (arglist-compatible-p resource
                                         (second method-and-args)))
              (error 'no-such-route
                     :format-control
                     "Too many, too few, or unsupported query arguments for REST resource ~a"
                     :format-arguments
-                    (list route-method)))
+                    (list resource)))
             (t
              (etypecase verb
                ;; For the Accept: header
@@ -401,7 +440,7 @@ In the correct order"
                                     :format-control
                                     "No matching routes for verb ~a on resource ~a and accept list ~a"
                                     :format-arguments
-                                    (list verb route-method accept-designators)))
+                                    (list verb resource accept-designators)))
                           thereis
                           (block try-again
                             (handler-bind ((no-such-route
@@ -409,7 +448,7 @@ In the correct order"
                                                  (declare (ignore c))
                                                  (return-from try-again nil))))
                               (setq retval
-                                    (apply route-method
+                                    (apply resource
                                            verb
                                            ;; FIXME: maybe use singletons here
                                            (make-instance (pop try-list))
@@ -417,7 +456,7 @@ In the correct order"
                               t)))
                   retval))
                (resting-verbs:receiving-verb
-                (apply route-method
+                (apply resource
                        verb
                        (make-instance (or content-type-designator
                                           'resting-types:content)

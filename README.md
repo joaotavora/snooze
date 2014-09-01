@@ -53,9 +53,7 @@ now create some Lisp file with
     (format s "~a \"~a\"" (todo-id x) (todo-task x))))
 
 (resting:defroute todo (:get "text/plain" id)
-  (let ((todo (find (parse-integer id)
-                    *todos*
-                    :key #'todo-id)))
+  (let ((todo (find id *todos* :key #'todo-id)))
     (if todo
         (todo-task todo)
         (error 'resting:404))))
