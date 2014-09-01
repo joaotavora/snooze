@@ -37,7 +37,7 @@
   (is (not (subtypep 'resting-types:send-any-text 'resting-types:application/xml))))
 
 (defroute bla (a b c &key foo resting:fragment &allow-other-keys)
-  (declare (ignore resting:fragment foo a b c)))
+  (declare (ignore resting:fragment foo c)))
 
 (deftest test-parse-uri ()
   (multiple-value-bind (route args)
