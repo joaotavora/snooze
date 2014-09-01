@@ -40,7 +40,8 @@ wanted, in case you want to use it."))
     (declare (ignore acceptor resource))
     (mapcar #'(lambda (arg)
                 (let ((probe (let ((*read-eval* nil))
-                                 (read-from-string arg))))
+                                 (ignore-errors
+                                  (read-from-string arg)))))
                   (if (numberp probe) probe arg)))
             args))
   (:documentation
@@ -285,10 +286,10 @@ The default method tries to convert every arguments to a number."))
               :format-arguments (list f args)))
      (defmethod check-arguments ((f (eql (function ,name))) actual-arguments)
        (apply 
-        #'(lambda ,lambda-list
-            (declare (ignore ,@(remove-if #'(lambda (sym)
-                                              (eq #\& (aref (symbol-name sym) 0)))
-                                          lambda-list))))
+        (lambda ,lambda-list
+          (declare (ignore ,@(remove-if #'(lambda (sym)
+                                            (eq #\& (aref (symbol-name sym) 0)))
+                                        lambda-list))))
         actual-arguments))))
 
 (defmacro defroute (name &body args)
@@ -319,7 +320,7 @@ The default method tries to convert every arguments to a number."))
          (simplified-lambda-list
            (mapcar #'ensure-atom proper-lambda-list)))
     `(progn
-       (defgeneric ,name ,simplified-lambda-list)
+       (defresource ,name ,simplified-lambda-list)
        (defmethod ,name ,@qualifiers
          ,proper-lambda-list
          ,@(if docstring `(,docstring))
@@ -382,7 +383,10 @@ In the correct order"
 (defun arglist-compatible-p (method args)
   (handler-case
       (progn
-        (check-arguments (symbol-function method) args)
+        (check-arguments (symbol-function method)
+                         (append
+                          (list 'dummy 'dummy)
+                          args))
         t)
     (error () nil)))
 
@@ -404,7 +408,7 @@ In the correct order"
                     (make-instance verb-designator))) 
          (method-and-args
            (multiple-value-list
-            (parse-uri (hunchentoot:script-name request) acceptor)))
+            (parse-uri (hunchentoot:request-uri request) acceptor)))
          (resource (first method-and-args))
          (route-arguments
            (convert-arguments acceptor resource (second method-and-args))))
