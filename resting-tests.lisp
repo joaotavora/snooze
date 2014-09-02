@@ -83,6 +83,15 @@
         (todo-task todo)
         (error 'resting:404 :format-control "No such todo!"))))
 
+(resting:defroute todo (:put (content "text/plain") id &key maybe)
+  (declare (ignore maybe))
+  (let ((todo (find id *todos* :key #'todo-id)))
+    (if todo
+        (setf (todo-task todo)
+              (babel:octets-to-string
+               (resting:content-body content)))
+        (error 'resting:404 :format-control "No such todo!"))))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
  (resting:define-content "application/json"))
 
@@ -97,67 +106,80 @@
 
 (in-package :resting-tests)
 
+(defmacro with-request ((uri &rest morekeys &key &allow-other-keys) args &body body)
+  (let ((result-sym (gensym)))
+    `(let* ((,result-sym
+              (multiple-value-list
+               (drakma:http-request
+                (format nil "http://localhost:~a~a" actual-port ,uri)
+                ,@morekeys)))
+            ,@(loop for arg in args
+                    for i from 0
+                    when arg
+                      collect `(,arg (nth ,i ,result-sym))))
+       ,@body)))
+
 (deftest test-some-routes (&optional use-this-acceptor)
   (let ((acceptor (or use-this-acceptor
                       (make-instance 'resting:rest-acceptor :port 0
                                                             :route-packages (list (find-package :resting-demo)))))
         (saved-catch-errors hunchentoot:*catch-errors-p*))
     (unwind-protect
-         (macrolet ((with-request ((&key uri accept) args &body body)
-                      (let ((result-sym (gensym)))
-                        `(let* ((,result-sym
-                                  (multiple-value-list
-                                   (drakma:http-request (format nil "http://localhost:~a~a" actual-port ,uri)
-                                                        :accept ,(or accept "*/*"))))
-                                ,@(loop for arg in args
-                                        for i from 0
-                                        when arg
-                                          collect `(,arg (nth ,i ,result-sym))))
-                           ,@body))))
-           (setq hunchentoot:*catch-errors-p* t)
-           (unless (hunchentoot::acceptor-listen-socket acceptor)
-             (hunchentoot:start acceptor))
-           (let ((actual-port
-                   #+(or allegro sbcl)
-                   (usocket:get-local-port (hunchentoot::acceptor-listen-socket acceptor))))
-             (with-request (:uri "/todo/1") (nil code) (is (= 200 code)))
-             (with-request (:uri "/todo/10") (nil code) (is (= 404 code)))
-             ;; Test keywords args
-             ;; 
-             (with-request (:uri "/todo/1?maybe=bla") (nil code) (is (= 200 code)))
-             (with-request (:uri "/todo/1?nokeyword=bla") (nil code) (is (= 404 code)))
-             ;; Test "Accept:" header
-             ;; 
-             (with-request (:uri "/todo/1"
-                            :accept "application/json") (nil code) (is (= 404 code)))
-             (with-request (:uri "/todo/1"
-                            :accept "application/*") (nil code) (is (= 404 code)))
-             (with-request (:uri "/todo/1"
-                            :accept "text/*") (nil code) (is (= 200 code)))
-             (with-request (:uri "/todo/1"
-                            :accept "text/plain") (nil code) (is (= 200 code)))
-             (with-request (:uri "/todo/1"
-                            :accept "application/json; q=0.8,text/plain; garbage") (nil code) (is (= 200 code)))
-             (with-request (:uri "/todo/1"
-                            :accept "application/json;text/plain") (nil code) (is (= 404 code)))
-             (with-request (:uri "/todos"
-                            :accept "application/json;text/plain") (answer code headers)
-               (is (= 200 code))
-               (is (not (stringp answer)))
-               (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
-               (is (string= (cdr (find :content-type headers :key #'car))
-                            "APPLICATION/JSON")))
-             (with-request (:uri "/todos"
-                            :accept "application/*;text/plain") (answer code headers)
-               (is (= 200 code))
-               (is (not (stringp answer)))
-               (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
-               (is (string= (cdr (find :content-type headers :key #'car))
-                            "APPLICATION/JSON")))
-             (with-request (:uri "/todos"
-                            :accept "text/plain;application/json") (answer code)
-               (is (= 200 code))
-               (is (stringp answer)))))
+         (setq hunchentoot:*catch-errors-p* t)
+      (unless (hunchentoot::acceptor-listen-socket acceptor)
+        (hunchentoot:start acceptor))
+      (let ((actual-port
+              #+(or allegro sbcl)
+              (usocket:get-local-port (hunchentoot::acceptor-listen-socket acceptor))))
+        (with-request ("/todo/1") (nil code) (is (= 200 code)))
+        (with-request ("/todo/10") (nil code) (is (= 404 code)))
+        ;; Test keywords args
+        ;; 
+        (with-request ("/todo/1?maybe=bla") (nil code) (is (= 200 code)))
+        (with-request ("/todo/1?nokeyword=bla") (nil code) (is (= 404 code)))
+        ;; Test "Accept:" header
+        ;; 
+        (with-request ("/todo/1"
+                       :accept "application/json") (nil code) (is (= 404 code)))
+        (with-request ("/todo/1"
+                       :accept "application/*") (nil code) (is (= 404 code)))
+        (with-request ("/todo/1"
+                       :accept "text/*") (nil code) (is (= 200 code)))
+        (with-request ("/todo/1"
+                       :accept "text/plain") (nil code) (is (= 200 code)))
+        (with-request ("/todo/1"
+                       :accept "application/json; q=0.8,text/plain; garbage") (nil code) (is (= 200 code)))
+        (with-request ("/todo/1"
+                       :accept "application/json;text/plain") (nil code) (is (= 404 code)))
+        (with-request ("/todos"
+                       :accept "application/json;text/plain") (answer code headers)
+          (is (= 200 code))
+          (is (not (stringp answer)))
+          (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
+          (is (string= (cdr (find :content-type headers :key #'car))
+                       "APPLICATION/JSON")))
+        (with-request ("/todos"
+                       :accept "application/*;text/plain") (answer code headers)
+          (is (= 200 code))
+          (is (not (stringp answer)))
+          (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
+          (is (string= (cdr (find :content-type headers :key #'car))
+                       "APPLICATION/JSON")))
+        (with-request ("/todos"
+                       :accept "text/plain;application/json") (answer code)
+          (is (= 200 code))
+          (is (stringp answer)))
+        (let ((random (symbol-name (gensym))))
+        (with-request ("/todo/3"
+                       :method :put
+                       :content random
+                       :content-type "text/plain") (nil code)
+          (is (= 200 code)))
+        (with-request ("/todo/3"
+                       :method :get
+                       :accept "text/plain") (answer code)
+          (is (= 200 code))
+          (is (string= answer random)))))
       (setq hunchentoot:*catch-errors-p* saved-catch-errors)
       (unless use-this-acceptor
         (hunchentoot:stop acceptor)))))

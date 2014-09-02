@@ -8,4 +8,5 @@
    #:fragment
    #:|404|
    #:explain-condition
-   #:defresource))
+   #:defresource
+   #:content-body))

@@ -5,6 +5,6 @@
                (:file "resting")))
 
 (asdf:defsystem :resting-tests
-  :depends-on (#:resting #:fiasco #:drakma)
+  :depends-on (#:resting #:fiasco #:drakma #:babel)
   :serial t
   :components ((:file "resting-tests")))

@@ -119,7 +119,10 @@ and completely expands the wildcard content-type."))
     t)
 
   (defclass resting-types:content ()
-    ((content-stream :initarg :content-stream))
+    ((content-body :initarg :content-body
+                   :accessor content-body
+                   :documentation "A sequence containing the body of the
+                     request that the route decided to handle."))
     (:metaclass supertype-metaclass))
   
   (defun intern-safe (designator package)
@@ -482,7 +485,8 @@ and completely expands the wildcard content-type."))
                 (apply resource
                        verb
                        (make-instance (class-name content-class) 
-                                      :content-stream 'something)
+                                      :content-body
+                                      (hunchentoot:raw-post-data :request request))
                        route-arguments))))))))
 
 (defmethod hunchentoot:acceptor-status-message ((acceptor rest-acceptor) status-code &key
