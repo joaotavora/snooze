@@ -12,7 +12,7 @@
      Specifically, packages containing generic functions whose names
      match the names of REST resources. ")
    (resource-name-regexp
-    :initform "/([^/]+)" :initarg :resource-name-regexp
+    :initform "/([^/.]+)" :initarg :resource-name-regexp
     :accessor resource-name-regexp
     :documentation
     "A CL-PPCRE regular expression to match a REST resource's name.
@@ -196,7 +196,7 @@ and completely expands the wildcard content-type."))
            (list verb-spec 'resting-verbs:http-verb)))))
 
 (defun find-content-class (designator)
-  "Return DESIGNATOR as content-type class-defining symbol or nil."
+  "Return class for DESIGNATOR if it defines a content-type or nil."
   (or (and (eq designator t)
            (progn
              (alexandria:simple-style-warning
@@ -296,9 +296,9 @@ and completely expands the wildcard content-type."))
 
 ;; DEFRESOURCE and DEFROUTE macros
 ;;
-(defmacro defresource (name lambda-list &body body)
+(defmacro defresource (name lambda-list &rest args)
   `(progn
-     (defgeneric ,name ,lambda-list ,@body)
+     (defgeneric ,name ,lambda-list ,@args)
      (defmethod no-applicable-method ((f (eql (function ,name))) &rest args)
        (error 'no-such-route
               :format-control "No applicable route ~%  ~a~%when called with args ~%  ~a" 
@@ -352,38 +352,60 @@ and completely expands the wildcard content-type."))
 
 ;;; Helpers for our HUNCHENTOOT:ACCEPTOR-DISPATCH-REQUEST method
 ;;;
-(defun parse-args-in-uri (args-string)
-  (let* ((required-and-query-and-fragment
-           (scan-to-strings*
-            "/?([^?]+)(?:\\?([^#]+))?(?:#(.*))?$"
-            args-string))
-         (required-args (cl-ppcre:split "/" (first required-and-query-and-fragment)))
-         (keyword-args (loop for maybe-pair in (cl-ppcre:split "[;&]" (second required-and-query-and-fragment))
+(defun parse-args-in-uri (args-string query-string)
+  (let* ((query-and-fragment (scan-to-strings* "(?:([^#]+))?(?:#(.*))?$"
+                                               query-string))
+         (required-args (cl-ppcre:split "/" (subseq args-string (mismatch "/" args-string))))
+         (keyword-args (loop for maybe-pair in (cl-ppcre:split "[;&]" (first query-and-fragment))
                              for (key-name value) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
                              when (and key-name value)
                                append (list (intern (string-upcase key-name) :keyword)
                                             value)))
-         (fragment (third required-and-query-and-fragment)))
+         (fragment (second query-and-fragment)))
     (append required-args
             keyword-args
             (when fragment
               (list 'resting:fragment fragment)))))
 
-(defun parse-uri (uri acceptor)
-  "Parse URI and return actual arguments for a lambda list."
+(defun parse-uri (script-name query-string acceptor)
+  "Parse URI for ACCEPTOR. Return values RESOURCE ARGS CONTENT-TYPE."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
   (let* ((resource-name-regexp (resource-name-regexp acceptor))
-         (scan-results (multiple-value-list (cl-ppcre:scan resource-name-regexp uri)))
-         (method-name
-           (apply #'subseq uri
-                  (if (plusp (length (third scan-results)))
-                      (list (aref (third scan-results) 0) (aref (fourth scan-results) 0))
-                      (list (first scan-results) (second scan-results)))))
-         (actual-arguments (parse-args-in-uri (subseq uri (second scan-results)))))
+         (match (multiple-value-list (cl-ppcre:scan resource-name-regexp
+                                                    script-name)))
+         (resource-name
+           (if (first match)
+               (apply #'subseq script-name
+                      (if (plusp (length (third match)))
+                          (list (aref (third match) 0) (aref (fourth match) 0))
+                          (list (first match) (second match))))
+               "root"))
+         (script-minus-resource (if (first match)
+                                    (subseq script-name (second match))
+                                    script-name))
+         (extension-match (cl-ppcre:scan "\\.\\w+$" script-minus-resource))
+         (args-string (if extension-match
+                          (subseq script-minus-resource 0 extension-match)
+                          script-minus-resource))
+         (extension (if extension-match
+                        (subseq script-minus-resource (1+ extension-match))))
+         (content-type-class (and extension
+                                  (find-content-class
+                                   (hunchentoot:mime-type
+                                    (format nil "dummy.~a" extension)))))
+         (actual-arguments (parse-args-in-uri (if content-type-class
+                                                  args-string
+                                                  (if (zerop (length args-string))
+                                                      ""
+                                                      script-minus-resource))
+                                              query-string)))
     (values (loop for package in (route-packages acceptor)
-                    thereis (find-symbol (string-upcase
-                                          method-name) package))
-            actual-arguments)))
+                  for sym = (find-symbol (string-upcase
+                                          resource-name) package)
+                    thereis (and (fboundp sym)
+                                 (symbol-function sym)))
+            actual-arguments
+            content-type-class)))
 
 (defun parse-accept-header (string acceptor resource)
   "Return a list of class objects designating " 
@@ -394,13 +416,12 @@ and completely expands the wildcard content-type."))
         when class
           append (expand-content-type acceptor resource class)))
 
-(defun arglist-compatible-p (method args)
+(defun arglist-compatible-p (resource args)
   (handler-case
       (progn
-        (check-arguments (symbol-function method)
-                         (append
-                          (list 'dummy 'dummy)
-                          args))
+        (check-arguments resource (append
+                                   (list 'dummy 'dummy)
+                                   args))
         t)
     (error () nil)))
 
@@ -409,85 +430,87 @@ and completely expands the wildcard content-type."))
   (find-content-class string))
 
 (defmethod hunchentoot:acceptor-dispatch-request ((acceptor rest-acceptor) request)
-  (let* ((content-class (parse-content-type-header (hunchentoot:header-in :content-type request)))
-         (verb-designator (or (find-class-1
-                               (intern (string-upcase (hunchentoot:request-method request))
-                                       :resting-verbs))
-                              (error "Can't find HTTP verb designator for request ~a!" request)))
-         ;; FIXME: maybe use singletons here
-         (verb (and verb-designator
-                    (make-instance verb-designator))) 
-         (method-and-args
-           (multiple-value-list
-            (parse-uri (hunchentoot:request-uri request) acceptor)))
-         (resource (first method-and-args))
-         (route-arguments
-           (convert-arguments acceptor resource (second method-and-args)))
-         (accepted-classes (parse-accept-header (hunchentoot:header-in :accept request)
-                                                acceptor
-                                                resource)))
-    (handler-bind ((http-condition
-                     #'(lambda (c)
-                         ;; FIXME: make this a restart
-                         (when hunchentoot:*catch-errors-p*
-                           (setf (hunchentoot:return-code*) (code c))
-                           (hunchentoot:abort-request-handler
-                            (explain-condition acceptor c))))))
-      (cond ((not resource)
-             (if (fall-through-p acceptor)
-                 (call-next-method)
-                 (error 'no-such-route
-                        :format-control
-                        "So sorry, but that URI doesn't match any REST resources")))
-            ((not (arglist-compatible-p resource
-                                        (second method-and-args)))
-             (error 'no-such-route
-                    :format-control
-                    "Too many, too few, or unsupported query arguments for REST resource ~a"
-                    :format-arguments
-                    (list resource)))
-            (t
-             (etypecase verb
-               ;; For the Accept: header
-               (resting-verbs:sending-verb
-                (let ((try-list accepted-classes)
-                      (retval))
-                  (loop do (unless try-list
-                             (error 'no-matching-content-types
-                                    :accepted-classes accepted-classes
-                                    :format-control
-                                    "No matching routes for verb~%  ~a~%on resource~%  ~a~%and accept list~%  ~a"
-                                    :format-arguments
-                                    (list verb resource
-                                          (mapcar #'class-name accepted-classes))))
-                          thereis
-                          (block try-again
-                            (handler-bind ((no-such-route
-                                             #'(lambda (c)
-                                                 (declare (ignore c))
-                                                 (return-from try-again nil))))
-                              ;; autosetting the reply's content-type
-                              ;; before the method call gives the
-                              ;; route a chance to override it.
-                              ;;
-                              (let ((content-type (pop try-list)))
-                                (setf (hunchentoot:content-type*)
-                                      (string (class-name content-type)))
-                                (setq retval
-                                      (apply resource
-                                             verb
-                                             ;; FIXME: maybe use singletons here
-                                             (make-instance (class-name content-type))
-                                             route-arguments))
-                                t))))
-                  retval))
-               (resting-verbs:receiving-verb
-                (apply resource
-                       verb
-                       (make-instance (class-name content-class) 
-                                      :content-body
-                                      (hunchentoot:raw-post-data :request request))
-                       route-arguments))))))))
+  (multiple-value-bind (resource args content-class)
+      (parse-uri (hunchentoot:script-name request)
+                 (hunchentoot:query-string request)
+                 acceptor)
+    (let* ((content-class
+             (or content-class
+                 (parse-content-type-header (hunchentoot:header-in :content-type request))))
+           (verb-designator (or (find-class-1
+                                 (intern (string-upcase (hunchentoot:request-method request))
+                                         :resting-verbs))
+                                (error "Can't find HTTP verb designator for request ~a!" request)))
+           ;; FIXME: maybe use singletons here
+           (verb (and verb-designator
+                      (make-instance verb-designator))) 
+           (converted-arguments (convert-arguments acceptor resource args))
+           (accepted-classes
+             (if content-class (list content-class)
+                 (parse-accept-header (hunchentoot:header-in :accept request)
+                                      acceptor
+                                      resource))))
+      (handler-bind ((http-condition
+                       #'(lambda (c)
+                           ;; FIXME: make this a restart
+                           (when hunchentoot:*catch-errors-p*
+                             (setf (hunchentoot:return-code*) (code c))
+                             (hunchentoot:abort-request-handler
+                              (explain-condition acceptor c))))))
+        (cond ((not resource)
+               (if (fall-through-p acceptor)
+                   (call-next-method)
+                   (error 'no-such-route
+                          :format-control
+                          "So sorry, but that URI doesn't match any REST resources")))
+              ((not (arglist-compatible-p resource converted-arguments))
+               (error 'no-such-route
+                      :format-control
+                      "Too many, too few, or unsupported query arguments for REST resource ~a"
+                      :format-arguments
+                      (list resource)))
+              (t
+               (etypecase verb
+                 ;; For the Accept: header
+                 (resting-verbs:sending-verb
+                  (let ((try-list accepted-classes)
+                        (retval))
+                    (loop do (unless try-list
+                               (error 'no-matching-content-types
+                                      :accepted-classes accepted-classes
+                                      :format-control
+                                      "No matching routes for verb~%  ~a~%on resource~%  ~a~%and accept list~%  ~a"
+                                      :format-arguments
+                                      (list verb resource
+                                            (mapcar #'class-name accepted-classes))))
+                            thereis
+                            (block try-again
+                              (handler-bind ((no-such-route
+                                               #'(lambda (c)
+                                                   (declare (ignore c))
+                                                   (return-from try-again nil))))
+                                ;; autosetting the reply's content-type
+                                ;; before the method call gives the
+                                ;; route a chance to override it.
+                                ;;
+                                (let ((content-type (pop try-list)))
+                                  (setf (hunchentoot:content-type*)
+                                        (string (class-name content-type)))
+                                  (setq retval
+                                        (apply resource
+                                               verb
+                                               ;; FIXME: maybe use singletons here
+                                               (make-instance (class-name content-type))
+                                               converted-arguments))
+                                  t))))
+                    retval))
+                 (resting-verbs:receiving-verb
+                  (apply resource
+                         verb
+                         (make-instance (class-name content-class) 
+                           :content-body
+                           (hunchentoot:raw-post-data :request request))
+                         converted-arguments)))))))))
 
 (defmethod hunchentoot:acceptor-status-message ((acceptor rest-acceptor) status-code &key
                                                 &allow-other-keys)

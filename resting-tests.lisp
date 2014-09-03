@@ -30,29 +30,82 @@
 
     (signals error (cts '"text/html-typo"))))
 
+(defpackage :resting-parse-uri-tests
+  (:use :resting :cl)
+  (:export #:bla #:root #:yo))
+(in-package :resting-parse-uri-tests)
+
 (defresource bla (a b c &key &allow-other-keys))
 
 (defroute bla (a b c &key foo resting:fragment &allow-other-keys)
   (declare (ignore resting:fragment foo c)))
 
-(deftest test-parse-uri ()
-  (multiple-value-bind (route args)
-      (parse-uri "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
-                 (make-instance 'rest-acceptor))
+(defresource root (verb content-type file))
+
+(defresource yo (verb content-type))
+
+(in-package :resting-tests)
+
+(defun parse-uri-1 (uri acceptor)
+  (let* ((match (position #\? uri))
+         (script-name (if match (subseq uri 0 match) uri))
+         (query-string (and match (subseq uri (1+ match)))))
+    (parse-uri script-name query-string acceptor)))
+
+(deftest test-parse-uri (&optional (acceptor
+                                    (make-instance 'rest-acceptor
+                                      :route-packages '(:resting-parse-uri-tests))))
+  (multiple-value-bind (resource args)
+      (parse-uri-1 "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal" acceptor)
     (is (equal args
                '("ble" "bli" :FOO "fonix" :BAR "fotrix" RESTING:FRAGMENT "coisoetal")))
-    (is (eq 'bla route)))
-  (multiple-value-bind (route args)
-      (parse-uri "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
-                 (make-instance 'rest-acceptor
-                   :resource-name-regexp "/ignored/([^/]+)/"))
+    (is (eq resource #'resting-parse-uri-tests:bla)))
+  
+  (multiple-value-bind (resource args)
+      (parse-uri-1 "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
+                   (make-instance 'rest-acceptor
+                     :route-packages (route-packages acceptor)
+                     :resource-name-regexp "/ignored/([^/]+)/"))
     (is (equal args
                '("ble" "bli" :FOO "fonix" :BAR "fotrix" RESTING:FRAGMENT "coisoetal")))
-    (is (eq 'bla route)))
-  (multiple-value-bind (route args)
-      (parse-uri "/bla/ble/bli" (make-instance 'rest-acceptor))
+    (is (eq resource #'resting-parse-uri-tests:bla)))
+  
+  (multiple-value-bind (resource args)
+      (parse-uri-1 "/bla/ble/bli" acceptor)
     (is (equal args '("ble" "bli")))
-    (is (eq 'bla route))))
+    (is (eq resource #'resting-parse-uri-tests:bla)))
+
+  ;; content-types in the extension
+  ;;
+  (multiple-value-bind (resource args content-type)
+      (parse-uri-1 "/yo?foo=ok" acceptor)
+    (is (equal args '(:foo "ok")))
+    (is (eq resource #'resting-parse-uri-tests:yo))
+    (is (eq content-type nil)))
+  
+  (multiple-value-bind (resource args content-type)
+      (parse-uri-1 "/yo.css?foo=ok" acceptor)
+    (is (equal args '(:foo "ok")))
+    (is (eq resource #'resting-parse-uri-tests:yo))
+    (is (eq content-type (find-class 'resting-types:text/css))))
+
+  (multiple-value-bind (resource args content-type)
+      (parse-uri-1 "/yo/1.css?foo=ok" acceptor)
+    (is (equal args '("1" :foo "ok")))
+    (is (eq resource #'resting-parse-uri-tests:yo))
+    (is (eq content-type (find-class 'resting-types:text/css))))
+
+  (multiple-value-bind (resource args content-type)
+      (parse-uri-1 "/yo.unknownextension?foo=ok" acceptor)
+    (is (equal args '(:foo "ok")))
+    (is (eq resource #'resting-parse-uri-tests:yo))
+    (is (not content-type)))
+
+  (multiple-value-bind (resource args content-type)
+      (parse-uri-1 "/yo/arg.unknownextension?foo=ok" acceptor)
+    (is (equal args '("arg.unknownextension" :foo "ok")))
+    (is (eq resource #'resting-parse-uri-tests:yo))
+    (is (not content-type))))
 
 
 ;;; Some tests from the READEM.md
@@ -82,6 +135,10 @@
     (if todo
         (todo-task todo)
         (error 'resting:404 :format-control "No such todo!"))))
+
+(resting:defroute todo (:get "text/css" id &key maybe)
+  (declare (ignore maybe))
+  (format nil "The CSS for TODO item ~a" id))
 
 (resting:defroute todo (:put (content "text/plain") id &key maybe)
   (declare (ignore maybe))
@@ -199,6 +256,20 @@
                      :method :get
                      :accept "text/plain") (answer code)
         (is (= 200 code))
-        (is (string= answer random))))))
+        (is (string= answer random))))
+    ;; content-type in extension
+    ;; 
+    (with-request ("/todo/1.css") (answer code)
+      (is (= 200 code))
+      (is (search "CSS for TODO item 1" answer)))))
+
+(defpackage :resting-demo-customization
+  (:use :cl :resting))
+(in-package :resting-demo-customization)
+
+(defresource root (verb content-type file))
+
+
+
 
 
