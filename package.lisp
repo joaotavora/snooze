@@ -9,4 +9,5 @@
    #:|404|
    #:explain-condition
    #:defresource
-   #:content-body))
+   #:content-body
+   #:route-packages))
