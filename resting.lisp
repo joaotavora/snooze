@@ -173,6 +173,68 @@ and completely expands the wildcard content-type."))
   (when (find-class sym nil)
     sym))
 
+(defun parse-defroute-args (defmethod-arglist)
+  "Return values QUALIFIERS, LAMBDA-LIST, BODY for DEFMETHOD-ARGLIST"
+  (loop for args on defmethod-arglist
+        if (listp (first args))
+          return (values qualifiers (first args) (cdr args))
+        else
+          collect (first args) into qualifiers))
+
+(defun make-genurl-form (genurl-fn-name resource-sym lambda-list)
+  (multiple-value-bind (required optional rest kwargs aok-p aux key-p)
+      (alexandria:parse-ordinary-lambda-list lambda-list)
+    (declare (ignore aux key-p))
+    (let ((all-kwargs
+            (append kwargs
+                    '(((:protocol protocol) :http nil)
+                      ((:host host) nil nil)))))
+      `(defun ,genurl-fn-name
+           ,@`(;; nasty
+               ;; 
+               (,@required
+                &optional
+                  ,@optional
+                  ,@(if rest `(&rest rest))
+                &key
+                  ,@all-kwargs
+                  ,@(if aok-p `(&allow-other-keys)))
+               (let ((base (if host
+                               (format nil "~a://~a/"
+                                       (string-downcase protocol) host)
+                               ""))
+                     ;; OMG
+                     ;; 
+                     (req-part (format nil "~{~a~^/~}"
+                                       (append (list ,@required)
+                                               (remove nil
+                                                       (list ,@(mapcar #'(lambda (opt-spec)
+                                                                           `(or ,(car opt-spec)
+                                                                                ,(second opt-spec)))
+                                                                       optional)))
+                                               ,rest)))
+                     ;; OMG^2...
+                     ;; 
+                     (query (format nil "?~{~a=~a~^&~}"
+                                    (alexandria:flatten
+                                     (remove-if #'null
+                                                (list
+                                                 ,@(loop for (kwarg kwdefault)
+                                                           in (mapcar #'(lambda (kwspec)
+                                                                          (list (second (first kwspec))
+                                                                                (second kwspec)))
+                                                                      kwargs)
+                                                         collect `(list ',(string-downcase kwarg)
+                                                                        (or ,kwarg
+                                                                            ,kwdefault))))
+                                                :key #'second))
+                                    )))
+                 (format nil "~a~a/~a~a"
+                         (or base "")
+                         (string-downcase ',resource-sym)
+                         req-part
+                         (or query ""))))))))
+
 (defun verb-spec-or-lose (verb-spec)
   "Convert VERB-SPEC into something `defmethod' can grok."
   (labels ((verb-designator-to-verb (designator)
@@ -193,7 +255,9 @@ and completely expands the wildcard content-type."))
                (stringp verb-spec))
            (list 'verb (verb-designator-to-verb verb-spec)))
           (verb-spec
-           (list verb-spec 'resting-verbs:http-verb)))))
+           (list verb-spec 'resting-verbs:http-verb))
+          (t
+           (error "~a is not a valid convertable HTTP verb spec" verb-spec)))))
 
 (defun find-content-class (designator)
   "Return class for DESIGNATOR if it defines a content-type or nil."
@@ -296,31 +360,56 @@ and completely expands the wildcard content-type."))
 
 ;; DEFRESOURCE and DEFROUTE macros
 ;;
-(defmacro defresource (name lambda-list &rest args)
-  `(progn
-     (defgeneric ,name ,lambda-list ,@args)
-     (defmethod no-applicable-method ((f (eql (function ,name))) &rest args)
-       (error 'no-such-route
-              :format-control "No applicable route ~%  ~a~%when called with args ~%  ~a" 
-              :format-arguments (list f args)))
-     (defmethod check-arguments ((f (eql (function ,name))) actual-arguments)
-       (apply 
-        (lambda ,lambda-list
-          (declare (ignore ,@(remove-if #'(lambda (sym)
-                                            (eq #\& (aref (symbol-name sym) 0)))
-                                        lambda-list))))
-        actual-arguments))
-     (defmethod resource-p ((f (eql (function ,name)))) t)))
+(defmacro defresource (name lambda-list &rest options)
+  (let* ((genurl-form)
+         (defgeneric-args
+           (loop for option in options
+                 for routep = (eq :route (car option))
+                 for (qualifiers spec-list body)
+                   = (and routep
+                          (multiple-value-list
+                           (parse-defroute-args (cdr option))))
+                 for verb-spec = (and routep
+                                      (verb-spec-or-lose (first spec-list)))
+                 for type-spec = (and routep
+                                      (content-type-spec-or-lose (second spec-list)
+                                                                 (second verb-spec)))
+                 
+                 if routep
+                   collect `(:method
+                              ,@qualifiers
+                              (,verb-spec ,type-spec ,@(nthcdr 2 spec-list))
+                              ,@body)
+                 else if (eq :genurl (car option))
+                        do (setq genurl-form
+                                 (make-genurl-form (second option) name
+                                                   (nthcdr 2 lambda-list)))
+                 else
+                   collect option)))
+    `(progn
+       (defgeneric ,name ,lambda-list ,@defgeneric-args)
+       (defmethod no-applicable-method ((f (eql (function ,name))) &rest args)
+         (error 'no-such-route
+                :format-control "No applicable route ~%  ~a~%when called with args ~%  ~a" 
+                :format-arguments (list f args)))
+       (defmethod check-arguments ((f (eql (function ,name))) actual-arguments)
+         (apply 
+          (lambda ,lambda-list
+            (declare (ignore ,@(remove-if #'(lambda (sym)
+                                              (eq #\& (aref (symbol-name sym) 0)))
+                                          (mapcar #'(lambda (argspec)
+                                                      (ensure-atom argspec))
+                                                  lambda-list)))))
+          actual-arguments))
+       (defmethod resource-p ((f (eql (function ,name)))) t)
+       ,@(if genurl-form `(,genurl-form)))))
 
 (defmacro defroute (name &body args)
   (let* (;; find the qualifiers and lambda list
          ;; 
          (first-parse
-           (loop for args on args
-                 if (listp (first args))
-                   return (list qualifiers (first args) (cdr args))
-                 else
-                   collect (first args) into qualifiers))
+           (multiple-value-list
+            (parse-defroute-args args)))
          (qualifiers (first first-parse))
          (lambda-list (second first-parse))
          (body (third first-parse))

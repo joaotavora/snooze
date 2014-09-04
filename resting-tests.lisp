@@ -263,11 +263,19 @@
       (is (= 200 code))
       (is (search "CSS for TODO item 1" answer)))))
 
-(defpackage :resting-demo-customization
+
+;;; Fancy section (incomplete)
+;;; 
+(defpackage :resting-demo-fancy
   (:use :cl :resting))
-(in-package :resting-demo-customization)
+(in-package :resting-demo-fancy)
 
-(defresource root (verb content-type file))
+(defresource book (verb content-type file user &optional (coiso "coiso") e tal &key fornix (yo "bla"))
+  (:genurl book-url)
+  (:route :around (:get "text/plain" file user &optional (coiso "coiso") e tal &key fornix (yo "bla"))
+          (declare (ignore file user coiso e tal fornix yo))))
+
+
 
 
 
