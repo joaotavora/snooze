@@ -181,59 +181,127 @@ and completely expands the wildcard content-type."))
         else
           collect (first args) into qualifiers))
 
+(defun check-optional-args (opt-values &optional warn-p)
+  (let ((nil-tail
+          (member nil opt-values)))
+  (unless (every #'null (rest nil-tail))
+    (if warn-p
+        (warn 'style-warning :format-control
+              "The NIL defaults to a genurl-function's &OPTIONALs must be at the end")
+        (error "The NILs to a genurl-function's &OPTIONALs must be at the end")))))
+
+(defpackage :resting-syms
+  (:use)
+  (:export #:protocol #:host
+           #:protocol-supplied-p #:host-supplied-p))
+
 (defun make-genurl-form (genurl-fn-name resource-sym lambda-list)
   (multiple-value-bind (required optional rest kwargs aok-p aux key-p)
       (alexandria:parse-ordinary-lambda-list lambda-list)
     (declare (ignore aux key-p))
-    (let ((all-kwargs
-            (append kwargs
-                    '(((:protocol protocol) :http nil)
-                      ((:host host) nil nil)))))
+    (let* (;;
+           ;;
+           (augmented-optional
+             (loop for (name default nil) in optional
+                   collect `(,name ,default ,(intern
+                                              (format nil "CALLER-SUPPLIED-~A"
+                                                      (string-upcase name))
+                                              :resting-syms))))
+           ;;
+           ;;
+           (augmented-kwargs
+             (loop for (kw-and-sym default) in kwargs
+                   for (nil sym) = kw-and-sym
+                   collect `(,kw-and-sym ,default ,(intern
+                                                    (format nil "CALLER-SUPPLIED-~A"
+                                                            (string-upcase sym))
+                                                    :resting-syms))))
+           ;;
+           ;;
+           (protocol-kwarg-name-sym (if (find :protocol kwargs
+                                              :key #'caar)
+                                        'resting-syms:protocol :protocol))
+           (host-kwarg-name-sym (if (find :host kwargs
+                                          :key #'caar)
+                                    'resting-syms:host :host))
+           (host-sym (gensym))
+           (protocol-sym (gensym))
+           ;;
+           ;;
+           (all-kwargs
+             (append augmented-kwargs
+                     `(((,protocol-kwarg-name-sym ,protocol-sym) :http
+                        resting-syms:protocol-supplied-p)
+                       ((,host-kwarg-name-sym ,host-sym) nil
+                        resting-syms:host-supplied-p))))
+           ;;
+           ;;
+           (required-args-form
+             `(list ,@required))
+           ;;
+           ;;
+           (optional-args-form
+             `(list ,@(loop for (name default supplied-p) in augmented-optional
+                            collect `(if ,supplied-p ,name (or ,name ,default)))))
+           ;;
+           ;;
+           (keyword-arguments-form
+             `(alexandria:flatten
+               (remove-if #'null
+                          (list
+                           ,@(loop for (kw-and-sym default supplied-p)
+                                     in augmented-kwargs
+                                   for (nil sym) = kw-and-sym
+                                   collect `(list (string-downcase ',sym)
+                                                  (if ,supplied-p
+                                                      ,sym
+                                                      (or ,sym
+                                                          ,default)))))
+                          :key #'second))))
+      ;; Optional args are checked at macroexpansion time
+      ;;
+      (check-optional-args (mapcar #'second optional) 'warn-p)
       `(defun ,genurl-fn-name
-           ,@`(;; nasty
+           ,@`(;; Nasty, this could easily be a function.
                ;; 
                (,@required
                 &optional
-                  ,@optional
-                  ,@(if rest `(&rest rest))
+                  ,@augmented-optional
+                  ,@(if rest
+                        (warn 'style-warning
+                              :format-control "&REST ~a is not supported for genurl-functions"
+                              :format-arguments (list rest)))
                 &key
                   ,@all-kwargs
                   ,@(if aok-p `(&allow-other-keys)))
-               (let ((base (if host
-                               (format nil "~a://~a/"
-                                       (string-downcase protocol) host)
-                               ""))
-                     ;; OMG
-                     ;; 
-                     (req-part (format nil "~{~a~^/~}"
-                                       (append (list ,@required)
-                                               (remove nil
-                                                       (list ,@(mapcar #'(lambda (opt-spec)
-                                                                           `(or ,(car opt-spec)
-                                                                                ,(second opt-spec)))
-                                                                       optional)))
-                                               ,rest)))
-                     ;; OMG^2...
-                     ;; 
-                     (query (format nil "?~{~a=~a~^&~}"
-                                    (alexandria:flatten
-                                     (remove-if #'null
-                                                (list
-                                                 ,@(loop for (kwarg kwdefault)
-                                                           in (mapcar #'(lambda (kwspec)
-                                                                          (list (second (first kwspec))
-                                                                                (second kwspec)))
-                                                                      kwargs)
-                                                         collect `(list ',(string-downcase kwarg)
-                                                                        (or ,kwarg
-                                                                            ,kwdefault))))
-                                                :key #'second))
-                                    )))
-                 (format nil "~a~a/~a~a"
-                         (or base "")
+               ;; And at runtime...
+               ;;
+               (check-optional-args ,optional-args-form)
+               (if (and resting-syms:protocol-supplied-p
+                        (not resting-syms:host-supplied-p))
+                   (error "It makes no sense to pass non-NIL ~%  ~a~%and a NIL~%  ~a"
+                          (list ',protocol-kwarg-name-sym ,protocol-sym)
+                          (list ',host-kwarg-name-sym ,host-sym)))
+               (let* ((base-part (and ,host-sym
+                                      (format nil "~a://~a/"
+                                              (string-downcase
+                                               ,protocol-sym)
+                                              ,host-sym)))
+                      (required-args-list ,required-args-form
+                      (required-part (format nil "~{~a~^/~}"
+                                             ,required-args-list))
+                      (optional-args-list (remove nil ,optional-args-form))
+                      (optional-part (and optional-args-list
+                                          (format nil "/~{~a~^/~}" optional-args-list)))
+                      (flattened-keywords-list ,keyword-arguments-form)
+                      (query-part (and flattened-keywords-list
+                                       (format nil "?~{~a=~a~^&~}" flattened-keywords-list))))
+                 (format nil "~a~a~a~a~a"
+                         (or base-part "")
                          (string-downcase ',resource-sym)
-                         req-part
-                         (or query ""))))))))
+                         (or required-part "")
+                         (or optional-part "")
+                         (or query-part ""))))))))
 
 (defun verb-spec-or-lose (verb-spec)
   "Convert VERB-SPEC into something `defmethod' can grok."

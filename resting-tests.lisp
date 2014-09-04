@@ -264,19 +264,44 @@
       (is (search "CSS for TODO item 1" answer)))))
 
 
-;;; Fancy section (incomplete)
+;;; Genurl section
 ;;; 
-(defpackage :resting-demo-fancy
+(fiasco:define-test-package :resting-demo-fancy
   (:use :cl :resting))
 (in-package :resting-demo-fancy)
 
-(defresource book (verb content-type file user &optional (coiso "coiso") e tal &key fornix (yo "bla"))
+(defresource book (verb content-type file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
   (:genurl book-url)
-  (:route :around (:get "text/plain" file user &optional (coiso "coiso") e tal &key fornix (yo "bla"))
+  (:route :around (:get "text/plain" file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
           (declare (ignore file user coiso e tal fornix yo))))
 
+(defresource papyrus (verb content-type file user &key protocol host)
+  (:genurl papyrus-url))
 
+(defresource testament (verb content-type &optional a &rest anything)
+  (:genurl testament-url))
 
+(deftest genurl-madness ()
+  (is (string= (book-url "yo" "yeah" nil nil :protocol "bla" :host "ble")
+               "bla://ble/book/yo/yeah?yo=yobla"))
+  (signals error (book-url "yo" "yeah" nil "AHA" :protocol "bla" :host "ble"))
+  (is (string= (book-url "yo" "yeah" "OK" nil :protocol "bla" :host "ble")
+               "bla://ble/book/yo/yeah/OK?yo=yobla"))
+  (is (string= (book-url "yo" "yeah" "OK" nil :protocol "bla" :host "ble" :yo "mama" :fornix nil)
+               "bla://ble/book/yo/yeah/OK?yo=mama"))
+  (is (string= (book-url "yo" "yeah") "book/yo/yeah/coiso/bla?yo=yobla"))
+  
+  ;; This one remembered to have keyword args named "protocol" and "host"
+  ;;
+  (is (string= (papyrus-url "a" "b" :protocol "shit"
+                          'resting-syms:protocol "https" 'resting-syms:host "localhost")
+               "https://localhost/papyrus/a/b?protocol=shit"))
+  (is (string= (papyrus-url "a" "b" :protocol "shit"
+                                  :protocol "https" 'resting-syms:host "localhost")
+               "http://localhost/papyrus/a/b?protocol=shit"))
+  (is (string= (papyrus-url "a" "b" :protocol "https" 'resting-syms:host "localhost")
+               "http://localhost/papyrus/a/b?protocol=https"))
+  (signals error (papyrus-url "a" "b" :protocol "https" 'resting-syms:protocol :ssh)))
 
 
 
