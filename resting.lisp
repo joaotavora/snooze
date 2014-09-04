@@ -181,59 +181,90 @@ and completely expands the wildcard content-type."))
         else
           collect (first args) into qualifiers))
 
+(defun make-genurl-function-lambda-list (required optional rest kwargs aok-p aux key-p)
+  (declare (ignore key-p aux))
+  `(,@required
+    &optional
+    ,@optional
+    ,@(if rest `(&rest rest))
+    &key
+    ,@kwargs
+    ,@(if aok-p `(&allow-other-keys))))
+
+(defun generate-url-for-args (resource-sym
+                              
+                              )
+  
+
+  )
+
+(defun generate-url-for-parsed-lambda-list (resource-sym
+                                            required
+                                            optional
+                                            rest
+                                            kwargs
+                                            aok-p
+                                            aux
+                                            key-p)
+  (let ((base (if host
+                  (format nil "~a://~a/"
+                          (string-downcase protocol) host)
+                  ""))
+        ;; OMG
+        ;; 
+        (req-part (format nil "~{~a~^/~}"
+                          (append (list ,@required)
+                                  (remove nil
+                                          (list ,@(mapcar #'(lambda (opt-spec)
+                                                              `(or ,(car opt-spec)
+                                                                   ,(second opt-spec)))
+                                                          optional)))
+                                  ,rest)))
+        ;; OMG^2...
+        ;; 
+        (query (format nil "?~{~a=~a~^&~}"
+                       (alexandria:flatten
+                        (remove-if #'null
+                                   (list
+                                    ,@(loop for (kwarg kwdefault)
+                                              in (mapcar #'(lambda (kwspec)
+                                                             (list (second (first kwspec))
+                                                                   (second kwspec)))
+                                                         kwargs)
+                                            collect `(list ',(string-downcase kwarg)
+                                                           (or ,kwarg
+                                                               ,kwdefault))))
+                                   :key #'second))
+                       )))
+    (format nil "~a~a/~a~a"
+            (or base "")
+            (string-downcase resource-sym)
+            req-part
+            (or query ""))))
+
+(defun listify (thing)
+  (if (and thing (listp thing))
+      (cons 'list (mapcar #'listify thing))
+      thing))
+
 (defun make-genurl-form (genurl-fn-name resource-sym lambda-list)
   (multiple-value-bind (required optional rest kwargs aok-p aux key-p)
       (alexandria:parse-ordinary-lambda-list lambda-list)
-    (declare (ignore aux key-p))
     (let ((all-kwargs
             (append kwargs
                     '(((:protocol protocol) :http nil)
                       ((:host host) nil nil)))))
       `(defun ,genurl-fn-name
-           ,@`(;; nasty
-               ;; 
-               (,@required
-                &optional
-                  ,@optional
-                  ,@(if rest `(&rest rest))
-                &key
-                  ,@all-kwargs
-                  ,@(if aok-p `(&allow-other-keys)))
-               (let ((base (if host
-                               (format nil "~a://~a/"
-                                       (string-downcase protocol) host)
-                               ""))
-                     ;; OMG
-                     ;; 
-                     (req-part (format nil "~{~a~^/~}"
-                                       (append (list ,@required)
-                                               (remove nil
-                                                       (list ,@(mapcar #'(lambda (opt-spec)
-                                                                           `(or ,(car opt-spec)
-                                                                                ,(second opt-spec)))
-                                                                       optional)))
-                                               ,rest)))
-                     ;; OMG^2...
-                     ;; 
-                     (query (format nil "?~{~a=~a~^&~}"
-                                    (alexandria:flatten
-                                     (remove-if #'null
-                                                (list
-                                                 ,@(loop for (kwarg kwdefault)
-                                                           in (mapcar #'(lambda (kwspec)
-                                                                          (list (second (first kwspec))
-                                                                                (second kwspec)))
-                                                                      kwargs)
-                                                         collect `(list ',(string-downcase kwarg)
-                                                                        (or ,kwarg
-                                                                            ,kwdefault))))
-                                                :key #'second))
-                                    )))
-                 (format nil "~a~a/~a~a"
-                         (or base "")
-                         (string-downcase ',resource-sym)
-                         req-part
-                         (or query ""))))))))
+           ,(make-genurl-function-lambda-list
+             required optional rest all-kwargs aok-p aux key-p)
+         (generate-url-for-parsed-lambda-list  ',resource-sym
+                                               ,(listify required)
+                                               ,(listify optional)
+                                               ,(listify rest)
+                                               ,(listify kwargs)
+                                               ,(listify aok-p)
+                                               ,(listify aux)
+                                               ,(listify key-p))))))
 
 (defun verb-spec-or-lose (verb-spec)
   "Convert VERB-SPEC into something `defmethod' can grok."
