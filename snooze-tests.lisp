@@ -1,50 +1,50 @@
-(fiasco:define-test-package :resting-tests
-  (:use #:cl #:resting)
-  (:import-from  #:resting
+(fiasco:define-test-package :snooze-tests
+  (:use #:cl #:snooze)
+  (:import-from  #:snooze
                  #:verb-spec-or-lose
                  #:content-type-spec-or-lose-1
                  #:parse-uri
                  #:parse-args-in-uri))
-(in-package :resting-tests)
+(in-package :snooze-tests)
 
 (deftest parse-verbs ()
   (handler-bind ((style-warning #'muffle-warning))
-    (is (equal (verb-spec-or-lose '(foo t)) '(FOO RESTING-VERBS:HTTP-VERB)))
-    (is (equal (verb-spec-or-lose :get) '(RESTING::VERB RESTING-VERBS:GET)))
-    (is (equal (verb-spec-or-lose "GET") '(RESTING::VERB RESTING-VERBS:GET)))
-    (is (equal (verb-spec-or-lose '(v resting-verbs:get)) '(V RESTING-VERBS:GET)))))
+    (is (equal (verb-spec-or-lose '(foo t)) '(FOO SNOOZE-VERBS:HTTP-VERB)))
+    (is (equal (verb-spec-or-lose :get) '(SNOOZE::VERB SNOOZE-VERBS:GET)))
+    (is (equal (verb-spec-or-lose "GET") '(SNOOZE::VERB SNOOZE-VERBS:GET)))
+    (is (equal (verb-spec-or-lose '(v snooze-verbs:get)) '(V SNOOZE-VERBS:GET)))))
 
 (deftest parse-content-types ()
   (macrolet ((cts (x)
                `(handler-bind ((style-warning #'muffle-warning))
                  (content-type-spec-or-lose-1 ,x))))
-    (is (equal (cts '(foo t)) '(FOO RESTING-TYPES:CONTENT)))
-    (is (equal (cts '(foo "*/*")) '(FOO RESTING-TYPES:CONTENT)))
-    (is (equal (cts :text/html) '(TYPE RESTING-TYPES:TEXT/HTML)))
-    (is (equal (cts "text/html") '(TYPE RESTING-TYPES:TEXT/HTML)))
-    (is (equal (cts '"text/html") '(TYPE RESTING-TYPES:TEXT/HTML)))
-    (is (equal (cts :text/*) '(TYPE RESTING-TYPES:TEXT)))
-    (is (equal (cts "text/*") '(TYPE RESTING-TYPES:TEXT)))
-    (is (equal (cts 'foo) '(FOO RESTING-TYPES:CONTENT)))
-    (is (equal (cts '(foo "text/html")) '(FOO RESTING-TYPES:TEXT/HTML)))
+    (is (equal (cts '(foo t)) '(FOO SNOOZE-TYPES:CONTENT)))
+    (is (equal (cts '(foo "*/*")) '(FOO SNOOZE-TYPES:CONTENT)))
+    (is (equal (cts :text/html) '(TYPE SNOOZE-TYPES:TEXT/HTML)))
+    (is (equal (cts "text/html") '(TYPE SNOOZE-TYPES:TEXT/HTML)))
+    (is (equal (cts '"text/html") '(TYPE SNOOZE-TYPES:TEXT/HTML)))
+    (is (equal (cts :text/*) '(TYPE SNOOZE-TYPES:TEXT)))
+    (is (equal (cts "text/*") '(TYPE SNOOZE-TYPES:TEXT)))
+    (is (equal (cts 'foo) '(FOO SNOOZE-TYPES:CONTENT)))
+    (is (equal (cts '(foo "text/html")) '(FOO SNOOZE-TYPES:TEXT/HTML)))
 
     (signals error (cts '"text/html-typo"))))
 
-(defpackage :resting-parse-uri-tests
-  (:use :resting :cl)
+(defpackage :snooze-parse-uri-tests
+  (:use :snooze :cl)
   (:export #:bla #:root #:yo))
-(in-package :resting-parse-uri-tests)
+(in-package :snooze-parse-uri-tests)
 
 (defresource bla (a b c &key &allow-other-keys))
 
-(defroute bla (a b c &key foo resting:fragment &allow-other-keys)
-  (declare (ignore resting:fragment foo c)))
+(defroute bla (a b c &key foo snooze:fragment &allow-other-keys)
+  (declare (ignore snooze:fragment foo c)))
 
 (defresource root (verb content-type file))
 
 (defresource yo (verb content-type))
 
-(in-package :resting-tests)
+(in-package :snooze-tests)
 
 (defun parse-uri-1 (uri acceptor)
   (let* ((match (position #\? uri))
@@ -54,12 +54,12 @@
 
 (deftest test-parse-uri (&optional (acceptor
                                     (make-instance 'rest-acceptor
-                                      :route-packages '(:resting-parse-uri-tests))))
+                                      :route-packages '(:snooze-parse-uri-tests))))
   (multiple-value-bind (resource args)
       (parse-uri-1 "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal" acceptor)
     (is (equal args
-               '("ble" "bli" :FOO "fonix" :BAR "fotrix" RESTING:FRAGMENT "coisoetal")))
-    (is (eq resource #'resting-parse-uri-tests:bla)))
+               '("ble" "bli" :FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
+    (is (eq resource #'snooze-parse-uri-tests:bla)))
   
   (multiple-value-bind (resource args)
       (parse-uri-1 "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
@@ -67,51 +67,51 @@
                      :route-packages (route-packages acceptor)
                      :resource-name-regexp "/ignored/([^/]+)/"))
     (is (equal args
-               '("ble" "bli" :FOO "fonix" :BAR "fotrix" RESTING:FRAGMENT "coisoetal")))
-    (is (eq resource #'resting-parse-uri-tests:bla)))
+               '("ble" "bli" :FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
+    (is (eq resource #'snooze-parse-uri-tests:bla)))
   
   (multiple-value-bind (resource args)
       (parse-uri-1 "/bla/ble/bli" acceptor)
     (is (equal args '("ble" "bli")))
-    (is (eq resource #'resting-parse-uri-tests:bla)))
+    (is (eq resource #'snooze-parse-uri-tests:bla)))
 
   ;; content-types in the extension
   ;;
   (multiple-value-bind (resource args content-type)
       (parse-uri-1 "/yo?foo=ok" acceptor)
     (is (equal args '(:foo "ok")))
-    (is (eq resource #'resting-parse-uri-tests:yo))
+    (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (eq content-type nil)))
   
   (multiple-value-bind (resource args content-type)
       (parse-uri-1 "/yo.css?foo=ok" acceptor)
     (is (equal args '(:foo "ok")))
-    (is (eq resource #'resting-parse-uri-tests:yo))
-    (is (eq content-type (find-class 'resting-types:text/css))))
+    (is (eq resource #'snooze-parse-uri-tests:yo))
+    (is (eq content-type (find-class 'snooze-types:text/css))))
 
   (multiple-value-bind (resource args content-type)
       (parse-uri-1 "/yo/1.css?foo=ok" acceptor)
     (is (equal args '("1" :foo "ok")))
-    (is (eq resource #'resting-parse-uri-tests:yo))
-    (is (eq content-type (find-class 'resting-types:text/css))))
+    (is (eq resource #'snooze-parse-uri-tests:yo))
+    (is (eq content-type (find-class 'snooze-types:text/css))))
 
   (multiple-value-bind (resource args content-type)
       (parse-uri-1 "/yo.unknownextension?foo=ok" acceptor)
     (is (equal args '(:foo "ok")))
-    (is (eq resource #'resting-parse-uri-tests:yo))
+    (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (not content-type)))
 
   (multiple-value-bind (resource args content-type)
       (parse-uri-1 "/yo/arg.unknownextension?foo=ok" acceptor)
     (is (equal args '("arg.unknownextension" :foo "ok")))
-    (is (eq resource #'resting-parse-uri-tests:yo))
+    (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (not content-type))))
 
 
 ;;; Some tests from the READEM.md
 ;;;
-(defpackage :resting-demo (:use :cl))
-(in-package :resting-demo)
+(defpackage :snooze-demo (:use :cl))
+(in-package :snooze-demo)
 
 (defparameter *todo-counter* 0)
 
@@ -129,39 +129,39 @@
   (print-unreadable-object (x s)
     (format s "~a \"~a\"" (todo-id x) (todo-task x))))
 
-(resting:defroute todo (:get "text/plain" id &key maybe)
+(snooze:defroute todo (:get "text/plain" id &key maybe)
   (declare (ignore maybe))
   (let ((todo (find id *todos* :key #'todo-id)))
     (if todo
         (todo-task todo)
-        (error 'resting:404 :format-control "No such todo!"))))
+        (error 'snooze:404 :format-control "No such todo!"))))
 
-(resting:defroute todo (:get "text/css" id &key maybe)
+(snooze:defroute todo (:get "text/css" id &key maybe)
   (declare (ignore maybe))
   (format nil "The CSS for TODO item ~a" id))
 
-(resting:defroute todo (:put (content "text/plain") id &key maybe)
+(snooze:defroute todo (:put (content "text/plain") id &key maybe)
   (declare (ignore maybe))
   (let ((todo (find id *todos* :key #'todo-id)))
     (if todo
         (setf (todo-task todo)
               (babel:octets-to-string
-               (resting:content-body content)))
-        (error 'resting:404 :format-control "No such todo!"))))
+               (snooze:content-body content)))
+        (error 'snooze:404 :format-control "No such todo!"))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
- (resting:define-content "application/json"))
+ (snooze:define-content "application/json"))
 
-(resting:defresource todos (method content))
+(snooze:defresource todos (method content))
 
-(resting:defroute todos (:get "text/plain")
+(snooze:defroute todos (:get "text/plain")
   (format nil "~{~a~^~%~}" (mapcar #'todo-task *todos*)))
 
-(resting:defroute todos (:get "application/json")
+(snooze:defroute todos (:get "application/json")
   (format nil "{NOTREALLYJSON~{~a~^~%~}NOTREALLYJSON}"
           (mapcar #'todo-task *todos*)))
 
-(in-package :resting-tests)
+(in-package :snooze-tests)
 
 (defvar *use-this-acceptor* nil)
 (defvar *actual-port*)
@@ -181,33 +181,33 @@
 
 (defun call-with-acceptor-setup (use-this-acceptor packages fn)
   (let* ((acceptor (or use-this-acceptor
-                       (make-instance 'resting:rest-acceptor :port 0)))
+                       (make-instance 'snooze:rest-acceptor :port 0)))
          (saved-catch-errors hunchentoot:*catch-errors-p*)
-         (saved-packages (resting:route-packages acceptor)))
+         (saved-packages (snooze:route-packages acceptor)))
     (unwind-protect
          (progn
            (setq hunchentoot:*catch-errors-p* t)
-           (setf (resting::route-packages acceptor) packages)
+           (setf (snooze::route-packages acceptor) packages)
            (unless (hunchentoot::acceptor-listen-socket acceptor)
              (hunchentoot:start acceptor))
            (let ((*actual-port*
                    #+(or allegro sbcl)
                    (usocket:get-local-port (hunchentoot::acceptor-listen-socket acceptor))))
              (funcall fn)))
-      (setf (resting::route-packages acceptor) saved-packages)
+      (setf (snooze::route-packages acceptor) saved-packages)
       (setq hunchentoot:*catch-errors-p* saved-catch-errors)
       (unless use-this-acceptor
         (hunchentoot:stop acceptor)))))
 
 (defmacro with-acceptor-setup
     ((&key use-this-acceptor
-           (packages '(:resting-demo)))
+           (packages '(:snooze-demo)))
      &body body)
   `(call-with-acceptor-setup ,use-this-acceptor ,packages #'(lambda () ,@body)))
 
 (deftest test-some-routes (&optional (use-this-acceptor *use-this-acceptor*))
   (with-acceptor-setup (:use-this-acceptor use-this-acceptor
-                        :packages '(:resting-demo))
+                        :packages '(:snooze-demo))
     (with-request ("/todo/1") (nil code) (is (= 200 code)))
     (with-request ("/todo/10") (nil code) (is (= 404 code)))
     ;; Test keywords args
@@ -266,9 +266,9 @@
 
 ;;; Genurl section
 ;;; 
-(fiasco:define-test-package :resting-demo-fancy
-  (:use :cl :resting))
-(in-package :resting-demo-fancy)
+(fiasco:define-test-package :snooze-demo-fancy
+  (:use :cl :snooze))
+(in-package :snooze-demo-fancy)
 
 (defresource book (verb content-type file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
   (:genurl book-url)
@@ -294,14 +294,14 @@
   ;; This one remembered to have keyword args named "protocol" and "host"
   ;;
   (is (string= (papyrus-url "a" "b" :protocol "shit"
-                          'resting-syms:protocol "https" 'resting-syms:host "localhost")
+                          'snooze-syms:protocol "https" 'snooze-syms:host "localhost")
                "https://localhost/papyrus/a/b?protocol=shit"))
   (is (string= (papyrus-url "a" "b" :protocol "shit"
-                                  :protocol "https" 'resting-syms:host "localhost")
+                                  :protocol "https" 'snooze-syms:host "localhost")
                "http://localhost/papyrus/a/b?protocol=shit"))
-  (is (string= (papyrus-url "a" "b" :protocol "https" 'resting-syms:host "localhost")
+  (is (string= (papyrus-url "a" "b" :protocol "https" 'snooze-syms:host "localhost")
                "http://localhost/papyrus/a/b?protocol=https"))
-  (signals error (papyrus-url "a" "b" :protocol "https" 'resting-syms:protocol :ssh)))
+  (signals error (papyrus-url "a" "b" :protocol "https" 'snooze-syms:protocol :ssh)))
 
 
 

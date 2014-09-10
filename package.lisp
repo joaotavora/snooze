@@ -1,4 +1,4 @@
-(defpackage #:resting
+(defpackage #:snooze
   (:use :cl)
   (:nicknames :rip)
   (:export

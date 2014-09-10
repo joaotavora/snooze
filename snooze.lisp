@@ -1,4 +1,4 @@
-(in-package #:resting)
+(in-package #:snooze)
 
 
 ;;; API
@@ -72,11 +72,11 @@ and completely expands the wildcard content-type."))
 ;;; perspective. Hence GET is "sending" and POST and PUT are
 ;;; "receiving".
 ;;; 
-(defpackage :resting-verbs (:use) (:export #:http-verb #:get #:post #:put #:delete
+(defpackage :snooze-verbs (:use) (:export #:http-verb #:get #:post #:put #:delete
                                            #:content-verb
                                            #:receiving-verb
                                            #:sending-verb))
-(in-package :resting-verbs)
+(in-package :snooze-verbs)
 
 (cl:defclass http-verb () ())
 
@@ -102,9 +102,9 @@ and completely expands the wildcard content-type."))
 ;;;
 ;;; So, for GET requests, we the hierarchy is actually inverse.
 ;;;
-(cl:in-package :resting)
-;; (delete-package :resting-types)
-(defpackage :resting-types (:use) (:export #:content))
+(cl:in-package :snooze)
+;; (delete-package :snooze-types)
+(defpackage :snooze-types (:use) (:export #:content))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
@@ -118,7 +118,7 @@ and completely expands the wildcard content-type."))
                                              (class supertype-metaclass))
     t)
 
-  (defclass resting-types:content ()
+  (defclass snooze-types:content ()
     ((content-body :initarg :content-body
                    :accessor content-body
                    :documentation "A sequence containing the body of the
@@ -129,7 +129,7 @@ and completely expands the wildcard content-type."))
     (intern (string-upcase designator) package))
   (defun send-any-symbol (supertype)
     (intern (string-upcase (format nil "SEND-ANY-~a" supertype))
-            :resting-types))
+            :snooze-types))
   (defun scan-to-strings* (regex string)
     (coerce (nth-value 1
                        (cl-ppcre:scan-to-strings regex
@@ -141,15 +141,15 @@ and completely expands the wildcard content-type."))
 (defmacro define-content (type-designator
                           &optional (supertype-designator
                                      (first (scan-to-strings* "([^/]+)" type-designator))))
-  (let* ((type (intern-safe type-designator :resting-types))
-         (supertype (intern-safe supertype-designator :resting-types)))
+  (let* ((type (intern-safe type-designator :snooze-types))
+         (supertype (intern-safe supertype-designator :snooze-types)))
     `(progn
        (unless (find-class ',supertype nil)
-         (defclass ,supertype (resting-types:content) ()
+         (defclass ,supertype (snooze-types:content) ()
            (:metaclass supertype-metaclass) ))
        (defclass ,type (,supertype) ())
        (eval-when (:compile-toplevel :load-toplevel :execute)
-         (export '(,type ,supertype) :resting-types)))))
+         (export '(,type ,supertype) :snooze-types)))))
 
 (defmacro define-known-content-types ()
   `(progn
@@ -190,7 +190,7 @@ and completely expands the wildcard content-type."))
               "The NIL defaults to a genurl-function's &OPTIONALs must be at the end")
         (error "The NILs to a genurl-function's &OPTIONALs must be at the end")))))
 
-(defpackage :resting-syms
+(defpackage :snooze-syms
   (:use)
   (:export #:protocol #:host
            #:protocol-supplied-p #:host-supplied-p))
@@ -206,7 +206,7 @@ and completely expands the wildcard content-type."))
                    collect `(,name ,default ,(intern
                                               (format nil "CALLER-SUPPLIED-~A"
                                                       (string-upcase name))
-                                              :resting-syms))))
+                                              :snooze-syms))))
            ;;
            ;;
            (augmented-kwargs
@@ -215,15 +215,15 @@ and completely expands the wildcard content-type."))
                    collect `(,kw-and-sym ,default ,(intern
                                                     (format nil "CALLER-SUPPLIED-~A"
                                                             (string-upcase sym))
-                                                    :resting-syms))))
+                                                    :snooze-syms))))
            ;;
            ;;
            (protocol-kwarg-name-sym (if (find :protocol kwargs
                                               :key #'caar)
-                                        'resting-syms:protocol :protocol))
+                                        'snooze-syms:protocol :protocol))
            (host-kwarg-name-sym (if (find :host kwargs
                                           :key #'caar)
-                                    'resting-syms:host :host))
+                                    'snooze-syms:host :host))
            (host-sym (gensym))
            (protocol-sym (gensym))
            ;;
@@ -231,9 +231,9 @@ and completely expands the wildcard content-type."))
            (all-kwargs
              (append augmented-kwargs
                      `(((,protocol-kwarg-name-sym ,protocol-sym) :http
-                        resting-syms:protocol-supplied-p)
+                        snooze-syms:protocol-supplied-p)
                        ((,host-kwarg-name-sym ,host-sym) nil
-                        resting-syms:host-supplied-p))))
+                        snooze-syms:host-supplied-p))))
            ;;
            ;;
            (required-args-form
@@ -277,8 +277,8 @@ and completely expands the wildcard content-type."))
                ;; And at runtime...
                ;;
                (check-optional-args ,optional-args-form)
-               (if (and resting-syms:protocol-supplied-p
-                        (not resting-syms:host-supplied-p))
+               (if (and snooze-syms:protocol-supplied-p
+                        (not snooze-syms:host-supplied-p))
                    (error "It makes no sense to pass non-NIL ~%  ~a~%and a NIL~%  ~a"
                           (list ',protocol-kwarg-name-sym ,protocol-sym)
                           (list ',host-kwarg-name-sym ,host-sym)))
@@ -310,10 +310,10 @@ and completely expands the wildcard content-type."))
                       (progn
                         (alexandria:simple-style-warning
                          "Coercing verb-designating type T in ~a to ~s"
-                              verb-spec 'resting-verbs:http-verb)
-                        'resting-verbs:http-verb))
+                              verb-spec 'snooze-verbs:http-verb)
+                        'snooze-verbs:http-verb))
                  (find-class-1 (intern (string-upcase designator)
-                                       :resting-verbs))
+                                       :snooze-verbs))
                  (error "Sorry, don't know the HTTP verb ~a"
                         (string-upcase designator)))))
     (cond ((and verb-spec
@@ -323,7 +323,7 @@ and completely expands the wildcard content-type."))
                (stringp verb-spec))
            (list 'verb (verb-designator-to-verb verb-spec)))
           (verb-spec
-           (list verb-spec 'resting-verbs:http-verb))
+           (list verb-spec 'snooze-verbs:http-verb))
           (t
            (error "~a is not a valid convertable HTTP verb spec" verb-spec)))))
 
@@ -333,10 +333,10 @@ and completely expands the wildcard content-type."))
            (progn
              (alexandria:simple-style-warning
               "Coercing content-designating type designator T to ~s"
-              'resting-types:content)
-             (find-class 'resting-types:content)))
-      (find-class (intern (string-upcase designator) :resting-types) nil)
-      (and (string= designator "*/*") (find-class 'resting-types:content))
+              'snooze-types:content)
+             (find-class 'snooze-types:content)))
+      (find-class (intern (string-upcase designator) :snooze-types) nil)
+      (and (string= designator "*/*") (find-class 'snooze-types:content))
       (let* ((matches (nth-value 1
                                  (cl-ppcre:scan-to-strings
                                   "([^/]+)/\\*"
@@ -344,7 +344,7 @@ and completely expands the wildcard content-type."))
              (supertype-designator (and matches
                                         (aref matches 0))))
         (find-class
-         (intern (string-upcase supertype-designator) :resting-types)
+         (intern (string-upcase supertype-designator) :snooze-types)
          nil))))
 
 (defun content-type-spec-or-lose-1 (type-spec)
@@ -362,7 +362,7 @@ and completely expands the wildcard content-type."))
            (list type-spec (type-designator-to-type t))))))
 
 (defun content-type-spec-or-lose (type-spec verb)
-  (cond ((subtypep verb 'resting-verbs:content-verb)
+  (cond ((subtypep verb 'snooze-verbs:content-verb)
          (content-type-spec-or-lose-1 type-spec))
         ((and type-spec (listp type-spec))
          (assert (eq t (second type-spec))
@@ -522,7 +522,7 @@ and completely expands the wildcard content-type."))
     (append required-args
             keyword-args
             (when fragment
-              (list 'resting:fragment fragment)))))
+              (list 'snooze:fragment fragment)))))
 
 (defun parse-uri (script-name query-string acceptor)
   "Parse URI for ACCEPTOR. Return values RESOURCE ARGS CONTENT-TYPE."
@@ -583,7 +583,7 @@ and completely expands the wildcard content-type."))
     (error () nil)))
 
 (defun parse-content-type-header (string)
-  "Return a symbol designating a RESTING-SEND-TYPE object."
+  "Return a symbol designating a SNOOZE-SEND-TYPE object."
   (find-content-class string))
 
 (defmethod hunchentoot:acceptor-dispatch-request ((acceptor rest-acceptor) request)
@@ -596,7 +596,7 @@ and completely expands the wildcard content-type."))
                  (parse-content-type-header (hunchentoot:header-in :content-type request))))
            (verb-designator (or (find-class-1
                                  (intern (string-upcase (hunchentoot:request-method request))
-                                         :resting-verbs))
+                                         :snooze-verbs))
                                 (error "Can't find HTTP verb designator for request ~a!" request)))
            ;; FIXME: maybe use singletons here
            (verb (and verb-designator
@@ -629,7 +629,7 @@ and completely expands the wildcard content-type."))
               (t
                (etypecase verb
                  ;; For the Accept: header
-                 (resting-verbs:sending-verb
+                 (snooze-verbs:sending-verb
                   (let ((try-list accepted-classes)
                         (retval))
                     (loop do (unless try-list
@@ -661,7 +661,7 @@ and completely expands the wildcard content-type."))
                                                converted-arguments))
                                   t))))
                     retval))
-                 (resting-verbs:receiving-verb
+                 (snooze-verbs:receiving-verb
                   (apply resource
                          verb
                          (make-instance (class-name content-class) 
