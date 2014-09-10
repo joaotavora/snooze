@@ -287,9 +287,8 @@ and completely expands the wildcard content-type."))
                                               (string-downcase
                                                ,protocol-sym)
                                               ,host-sym)))
-                      (required-args-list ,required-args-form
-                      (required-part (format nil "~{~a~^/~}"
-                                             ,required-args-list))
+                      (required-args-list ,required-args-form)
+                      (required-part (format nil "~{~a~^/~}" required-args-list))
                       (optional-args-list (remove nil ,optional-args-form))
                       (optional-part (and optional-args-list
                                           (format nil "/~{~a~^/~}" optional-args-list)))
