@@ -24,7 +24,15 @@
     :initform nil :initarg :fall-through-p
     :accessor fall-through-p
     :documentation
-    "What to do if resource name extracted from URI doesn't match."))
+    "What to do if resource name extracted from URI doesn't match.
+     If NIL, issue a 404. Otherwise let the ancestors of the
+     REST-ACCEPTOR object handle the request")
+   (home-resource
+    :initform nil :initarg :home-resource
+    :accessor home-resource
+    :documentation
+    "Default \"home\" resource, served when the requested URL is \"bare\".
+     Value can be a string or a function designator."))
   (:documentation "An acceptor for RESTful routes"))
 
 (defgeneric explain-condition (acceptor c)
@@ -523,6 +531,12 @@ and completely expands the wildcard content-type."))
             (when fragment
               (list 'snooze:fragment fragment)))))
 
+(defun find-resource-by-name (name acceptor)
+  (loop for package in (route-packages acceptor)
+        for sym = (find-symbol (string-upcase name) package)
+          thereis (and (fboundp sym)
+                       (symbol-function sym))))
+
 (defun parse-uri (script-name query-string acceptor)
   "Parse URI for ACCEPTOR. Return values RESOURCE ARGS CONTENT-TYPE."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
@@ -530,13 +544,17 @@ and completely expands the wildcard content-type."))
          (match (multiple-value-list (cl-ppcre:scan resource-name-regexp
                                                     script-name)))
          (resource-name
-           (if (first match)
-               (apply #'subseq script-name
-                      (if (plusp (length (third match)))
-                          (list (aref (third match) 0) (aref (fourth match) 0))
-                          (list (first match) (second match))))
-               "root"))
-         (script-minus-resource (if (first match)
+           (and (first match)
+                (apply #'subseq script-name
+                       (if (plusp (length (third match)))
+                           (list (aref (third match) 0) (aref (fourth match) 0))
+                           (list (first match) (second match))))))
+         (first-slash-resource (find-resource-by-name resource-name acceptor))
+         (resource (or first-slash-resource
+                       (and (home-resource acceptor)
+                            (find-resource-by-name (home-resource acceptor)
+                                                   acceptor))))
+         (script-minus-resource (if first-slash-resource
                                     (subseq script-name (second match))
                                     script-name))
          (extension-match (cl-ppcre:scan "\\.\\w+$" script-minus-resource))
@@ -555,11 +573,7 @@ and completely expands the wildcard content-type."))
                                                       ""
                                                       script-minus-resource))
                                               query-string)))
-    (values (loop for package in (route-packages acceptor)
-                  for sym = (find-symbol (string-upcase
-                                          resource-name) package)
-                    thereis (and (fboundp sym)
-                                 (symbol-function sym)))
+    (values resource
             actual-arguments
             content-type-class)))
 
