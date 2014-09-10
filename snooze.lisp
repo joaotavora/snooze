@@ -599,6 +599,16 @@ and completely expands the wildcard content-type."))
   "Return a symbol designating a SNOOZE-SEND-TYPE object."
   (find-content-class string))
 
+(defparameter *always-explain-conditions* nil
+  "If non-nil, explain conditions even if HUNCHENTOOT:CATCH-ERRORS-P is nil.")
+
+(defmethod hunchentoot:acceptor-dispatch-request :around ((acceptor rest-acceptor) request)
+  (declare (ignore request))
+  (let ((retval (call-next-method)))
+    (etypecase retval
+      (pathname (hunchentoot:handle-static-file retval))
+      (string retval))))
+
 (defmethod hunchentoot:acceptor-dispatch-request ((acceptor rest-acceptor) request)
   (multiple-value-bind (resource args content-class)
       (parse-uri (hunchentoot:script-name request)
@@ -623,7 +633,8 @@ and completely expands the wildcard content-type."))
       (handler-bind ((http-condition
                        #'(lambda (c)
                            ;; FIXME: make this a restart
-                           (when hunchentoot:*catch-errors-p*
+                           (when (or hunchentoot:*catch-errors-p*
+                                     *always-explain-conditions*)
                              (setf (hunchentoot:return-code*) (code c))
                              (hunchentoot:abort-request-handler
                               (explain-condition acceptor c))))))

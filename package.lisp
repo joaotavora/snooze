@@ -10,4 +10,5 @@
    #:explain-condition
    #:defresource
    #:content-body
-   #:route-packages))
+   #:route-packages
+   #:*always-explain-conditions*))
