@@ -1,12 +1,27 @@
 (in-package #:snooze)
 
 
-;;; API
+;;; Implementation-facing API
 ;;;
-(defclass rest-acceptor (hunchentoot:acceptor)
+(defgeneric start-with-backend (server backend)
+  (:documentation "How to start running SERVER on BACKEND."))
+
+(defgeneric stop-with-backend (server backend)
+  (:documentation "How to stop running SERVER on BACKEND."))
+
+(defgeneric started-p-with-backend (server backend)
+  (:documentation "How to tell if still running SERVER on BACKEND."))
+
+(defgeneric backend (server)
+  (:documentation "The implementation object for SERVER"))
+
+
+;;; User facing API
+;;;
+(defclass snooze-server ()
   ((route-packages
-    :initform (list *package*)
-    :initarg :route-packages :accessor route-packages
+    :initform (list *package*) :initarg :route-packages
+    :accessor route-packages
     :documentation
     "A list of packages to look for routes.
      Specifically, packages containing generic functions whose names
@@ -25,21 +40,33 @@
     :accessor fall-through-p
     :documentation
     "What to do if resource name extracted from URI doesn't match.
-     If NIL, issue a 404. Otherwise let the ancestors of the
-     REST-ACCEPTOR object handle the request")
+     If NIL, issue a 404. Otherwise let the backend of the
+     SNOOZE-SERVER object handle the request")
    (home-resource
     :initform nil :initarg :home-resource
     :accessor home-resource
     :documentation
     "Default \"home\" resource, served when the requested URL is \"bare\".
-     Value can be a string or a function designator."))
-  (:documentation "An acceptor for RESTful routes"))
+     Value can be a string or a function designator.")
+   (backend
+    :reader backend
+    :documentation "Backend cache"))
+  (:documentation "HTTP server for handling RESTful routes"))
+
+(defun start (server)
+  "Start the Snooze REST server in SERVER"
+  (start-with-backend server (backend server)))
+
+(defun stop (server)
+  "Stop the Snooze REST server in SERVER"
+  (stop-with-backend server (backend server)))
+
+(defun started-p (server)
+  (started-p-with-backend server (backend server)))
 
 (defgeneric explain-condition (acceptor c)
   (:documentation
-   "In the context of ACCEPTOR, explain exceptional condition C to client.
-New methods added can/should set HUNCHENTOOT:CONTENT-TYPE* on the
-current reply."))
+   "In the context of ACCEPTOR, explain exceptional condition C to client."))
 
 (defgeneric convert-arguments (acceptor resource actual-arguments)
   (:method (acceptor resource args)
@@ -296,7 +323,7 @@ and completely expands the wildcard content-type."))
                                                ,protocol-sym)
                                               ,host-sym)))
                       (required-args-list ,required-args-form)
-                      (required-part (format nil "~{~a~^/~}" required-args-list))
+                      (required-part (format nil "/~{~a~^/~}" required-args-list))
                       (optional-args-list (remove nil ,optional-args-form))
                       (optional-part (and optional-args-list
                                           (format nil "/~{~a~^/~}" optional-args-list)))
@@ -428,7 +455,6 @@ and completely expands the wildcard content-type."))
 
 (defmethod explain-condition (acceptor c)
   (declare (ignore acceptor))
-  (setf (hunchentoot:content-type*) "text/plain")
   (format nil "~?" (simple-condition-format-control c)
           (simple-condition-format-arguments c)))
 
@@ -514,8 +540,48 @@ and completely expands the wildcard content-type."))
          ,@remaining))))
 
 
-;;; Helpers for our HUNCHENTOOT:ACCEPTOR-DISPATCH-REQUEST method
+;;; Hunchentoot implementation
 ;;;
+;;; TODO: factor out helpers like DEFINE-DELEGATED-ACCESSORS,
+;;; PARSE-ARGS-IN-URI, FIND-RESOURCE-BY-NAME, PARSE-URI when more
+;;; implementations are added
+;;;
+(defclass rest-acceptor (hunchentoot:acceptor)
+  ((server :initarg :server :initform (error "required!") :accessor server)))
+
+(defmethod start-with-backend (server (backend rest-acceptor))
+  (declare (ignore server))
+  (hunchentoot:start backend))
+
+(defmethod stop-with-backend (server (backend rest-acceptor))
+  (declare (ignore server))
+  (hunchentoot:stop backend))
+
+(defmethod started-p-with-backend (server (backend rest-acceptor))
+  (declare (ignore server))
+  (hunchentoot:started-p backend))
+
+(defmethod initialize-instance :after ((server snooze-server)
+                                       &rest args
+                                       &key route-packages
+                                       &allow-other-keys)
+  (declare (ignore route-packages))
+  (setf (slot-value server 'backend)
+        (apply #'make-instance 'rest-acceptor :server server
+               (loop for (k v) on args by #'cddr
+                     unless (member k '(:route-packages :resource-name-regexp
+                                        :fall-through-p :home-resource))
+                       collect k and collect v))))
+
+(defmacro define-delegated-accessors (class delegate accessor-names)
+  `(progn
+     ,@(loop for name in accessor-names
+             collect `(defmethod ,name ((backend ,class))
+                        (,name (funcall ,delegate backend))))))
+
+(define-delegated-accessors rest-acceptor #'server
+  (route-packages resource-name-regexp fall-through-p home-resource))
+
 (defun parse-args-in-uri (args-string query-string)
   (let* ((query-and-fragment (scan-to-strings* "(?:([^#]+))?(?:#(.*))?$"
                                                query-string))
