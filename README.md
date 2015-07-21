@@ -46,33 +46,85 @@ now create some Lisp file with
 (defclass todo ()
   ((id :initform (incf *todo-counter*) :accessor todo-id)
    (task :initarg :task :accessor todo-task)
-   (done :initarg :done :accessor todo-done)))
+   (done :initform nil :initarg :done :accessor todo-done)))
 
 (defparameter *todos* 
   (list (make-instance 'todo :task "Wash dishes")
         (make-instance 'todo :task "Scrub floor")
         (make-instance 'todo :task "Doze off" :done t)))
 
-(defmethod print-object ((x todo) s)
-  (print-unreadable-object (x s)
-    (format s "~a \"~a\"" (todo-id x) (todo-task x))))
+(defun find-todo-or-lose (id)
+  (or (find id *todos* :key #'todo-id)
+      (error 'snooze:404)))
 
 (snooze:defroute todo (:get "text/plain" id)
-  (let ((todo (find id *todos* :key #'todo-id)))
-    (if todo
-        (todo-task todo)
-        (error 'snooze:404))))
+  (let ((todo (find-todo-or-lose id)))
+    (format nil "~a: ~a ~a" (todo-id todo) (todo-task todo)
+            (if (todo-done todo) "DONE" "TODO"))))
 
 (snooze:defroute todos (:get "text/plain")
   (format nil "~{~a~^~%~}" (mapcar #'todo-task *todos*)))
 
-(hunchentoot:start (make-instance 'snooze:rest-acceptor :port 4242))
+(snooze:start (make-instance 'snooze:snooze-server
+                             :port 4242 :route-packages '(:snooze-demo)))
 ```
+
+And connect to "http://localhost:4242/todos" to see a list of
+`todo`'s.
 
 CLOS-based tricks
 -----------------
 
-TODO...
+Routes are really only CLOS methods: `defroute` little more than
+`defmethod`. For example, to remove particular route just delete the
+particular method.
+
+Here's the method that updates a `todo`'s data using a PUT request
+
+
+```
+(snooze:defroute todo (:put content id)
+  (let ((todo (find-todo-or-lose id)))
+    (setf (todo-task todo)
+          (snooze:content-body content))))
+```
+
+In this snippet, `content` could be `"application/json"` to make the
+server also accept JSON input.
+
+Another trick is to coalesce all the `defroute` definitions into a
+single `defresource` definitions, much like `defmethod` can be in a
+`defgeneric`:
+
+```lisp
+(snooze:defresource todo (verb content-type id)
+  (:genurl todo-url)
+  (:route (:get "text/*" id)
+          (todo-task (find-todo-or-lose id)))
+  (:route (:get "text/html" id)
+          (format nil "<b>~a</b>" (call-next-method)))
+  (:route (:get "application/json" id)
+          ;; you should use some json-encoding package here, tho
+          (let ((todo (find-todo-or-lose id)))
+            (format nil "{id:~a,task:~a,done:~a}"
+            (todo-id todo) (todo-task todo) (todo-done todo)))))
+```
+
+Using `defresource` gives you another bonus, which is you get to
+specify an URL-generating function, in this case `todo-url`, to use in
+your view code:
+
+```
+SNOOZE-DEMO> (todo-url 3)
+"todo/3"
+SNOOZE-DEMO> (todo-url 3 :protocol "https" :host "localhost")
+"https://localhost/todo/3"
+```
+
+What happens if I add &optional or &key?
+----------------------------------------
+
+That's a very good question, and thanks for asking :grin:
 
 Controlling errors
 ------------------
