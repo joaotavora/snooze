@@ -17,7 +17,7 @@
 (deftest parse-content-types ()
   (macrolet ((cts (x)
                `(handler-bind ((style-warning #'muffle-warning))
-                 (content-type-spec-or-lose-1 ,x))))
+                  (content-type-spec-or-lose-1 ,x))))
     (is (equal (cts '(foo t)) '(FOO SNOOZE-TYPES:CONTENT)))
     (is (equal (cts '(foo "*/*")) '(FOO SNOOZE-TYPES:CONTENT)))
     (is (equal (cts :text/html) '(TYPE SNOOZE-TYPES:TEXT/HTML)))
@@ -46,63 +46,63 @@
 
 (in-package :snooze-tests)
 
-(defun parse-uri-1 (uri acceptor)
+(defun parse-uri-1 (uri server)
   (let* ((match (position #\? uri))
          (script-name (if match (subseq uri 0 match) uri))
          (query-string (and match (subseq uri (1+ match)))))
-    (parse-uri script-name query-string acceptor)))
+    (parse-uri script-name query-string server)))
 
-(deftest test-parse-uri (&optional (acceptor
-                                    (make-instance 'rest-acceptor
-                                      :route-packages '(:snooze-parse-uri-tests))))
+(deftest test-parse-uri (&optional (server
+                                    (make-instance 'snooze-server
+                                                   :route-packages '(:snooze-parse-uri-tests))))
   (multiple-value-bind (resource args)
-      (parse-uri-1 "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal" acceptor)
+      (parse-uri-1 "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal" server)
     (is (equal args
                '("ble" "bli" :FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
   
   (multiple-value-bind (resource args)
       (parse-uri-1 "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
-                   (make-instance 'rest-acceptor
-                     :route-packages (route-packages acceptor)
-                     :resource-name-regexp "/ignored/([^/]+)/"))
+                   (make-instance 'snooze-server
+                                  :route-packages (route-packages server)
+                                  :resource-name-regexp "/ignored/([^/]+)/"))
     (is (equal args
                '("ble" "bli" :FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
   
   (multiple-value-bind (resource args)
-      (parse-uri-1 "/bla/ble/bli" acceptor)
+      (parse-uri-1 "/bla/ble/bli" server)
     (is (equal args '("ble" "bli")))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
 
   ;; content-types in the extension
   ;;
   (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo?foo=ok" acceptor)
+      (parse-uri-1 "/yo?foo=ok" server)
     (is (equal args '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (eq content-type nil)))
   
   (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo.css?foo=ok" acceptor)
+      (parse-uri-1 "/yo.css?foo=ok" server)
     (is (equal args '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (eq content-type (find-class 'snooze-types:text/css))))
 
   (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo/1.css?foo=ok" acceptor)
+      (parse-uri-1 "/yo/1.css?foo=ok" server)
     (is (equal args '("1" :foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (eq content-type (find-class 'snooze-types:text/css))))
 
   (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo.unknownextension?foo=ok" acceptor)
+      (parse-uri-1 "/yo.unknownextension?foo=ok" server)
     (is (equal args '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (not content-type)))
 
   (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo/arg.unknownextension?foo=ok" acceptor)
+      (parse-uri-1 "/yo/arg.unknownextension?foo=ok" server)
     (is (equal args '("arg.unknownextension" :foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (not content-type))))
@@ -150,7 +150,7 @@
         (error 'snooze:404 :format-control "No such todo!"))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
- (snooze:define-content "application/json"))
+  (snooze:define-content "application/json"))
 
 (snooze:defresource todos (method content))
 
@@ -163,7 +163,7 @@
 
 (in-package :snooze-tests)
 
-(defvar *use-this-acceptor* nil)
+(defvar *use-this-server* nil)
 (defvar *actual-port*)
 
 (defmacro with-request ((uri &rest morekeys &key &allow-other-keys) args &body body)
@@ -179,35 +179,37 @@
                       collect `(,arg (nth ,i ,result-sym))))
        ,@body)))
 
-(defun call-with-acceptor-setup (use-this-acceptor packages fn)
-  (let* ((acceptor (or use-this-acceptor
-                       (make-instance 'snooze:rest-acceptor :port 0)))
+(defun call-with-server-setup (use-this-server packages fn)
+  (let* ((server (or use-this-server
+                     (make-instance 'snooze:snooze-server :port 0
+                                    :route-packages nil)))
          (saved-catch-errors hunchentoot:*catch-errors-p*)
-         (saved-packages (snooze:route-packages acceptor)))
+         (saved-packages (snooze:route-packages server)))
     (unwind-protect
          (progn
            (setq hunchentoot:*catch-errors-p* t)
-           (setf (snooze::route-packages acceptor) packages)
-           (unless (hunchentoot::acceptor-listen-socket acceptor)
-             (hunchentoot:start acceptor))
+           (setf (snooze::route-packages server) packages)
+           (snooze:start server)
            (let ((*actual-port*
                    #+(or allegro sbcl)
-                   (usocket:get-local-port (hunchentoot::acceptor-listen-socket acceptor))))
+                   (usocket:get-local-port
+                    (hunchentoot::acceptor-listen-socket
+                     (snooze::backend server)))))
              (funcall fn)))
-      (setf (snooze::route-packages acceptor) saved-packages)
+      (setf (snooze::route-packages server) saved-packages)
       (setq hunchentoot:*catch-errors-p* saved-catch-errors)
-      (unless use-this-acceptor
-        (hunchentoot:stop acceptor)))))
+      (unless use-this-server
+        (snooze:stop server)))))
 
-(defmacro with-acceptor-setup
-    ((&key use-this-acceptor
+(defmacro with-server-setup
+    ((&key use-this-server
            (packages '(:snooze-demo)))
      &body body)
-  `(call-with-acceptor-setup ,use-this-acceptor ,packages #'(lambda () ,@body)))
+  `(call-with-server-setup ,use-this-server ,packages #'(lambda () ,@body)))
 
-(deftest test-some-routes (&optional (use-this-acceptor *use-this-acceptor*))
-  (with-acceptor-setup (:use-this-acceptor use-this-acceptor
-                        :packages '(:snooze-demo))
+(deftest test-some-routes (&optional (use-this-server *use-this-server*))
+  (with-server-setup (:use-this-server use-this-server
+                      :packages '(:snooze-demo))
     (with-request ("/todo/1") (nil code) (is (= 200 code)))
     (with-request ("/todo/10") (nil code) (is (= 404 code)))
     ;; Test keywords args
@@ -294,10 +296,10 @@
   ;; This one remembered to have keyword args named "protocol" and "host"
   ;;
   (is (string= (papyrus-url "a" "b" :protocol "shit"
-                          'snooze-syms:protocol "https" 'snooze-syms:host "localhost")
+                            'snooze-syms:protocol "https" 'snooze-syms:host "localhost")
                "https://localhost/papyrus/a/b?protocol=shit"))
   (is (string= (papyrus-url "a" "b" :protocol "shit"
-                                  :protocol "https" 'snooze-syms:host "localhost")
+                                    :protocol "https" 'snooze-syms:host "localhost")
                "http://localhost/papyrus/a/b?protocol=shit"))
   (is (string= (papyrus-url "a" "b" :protocol "https" 'snooze-syms:host "localhost")
                "http://localhost/papyrus/a/b?protocol=https"))
