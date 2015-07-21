@@ -4,19 +4,27 @@ Snooze
 Snooze is for RESTing in Common Lisp.
 
 It's a framework for setting up routes and links to them. It invites
-you to use plain old CLOS generic functions to define routes:
+you to use plain old CLOS generic functions to define routes matching:
 
 * matching HTTP verbs
 * matching headers `Content-Type` or `Accept`, according to the verb
 * matching certain URL patterns
 
-It's all done with CLOS, so every route is a method that you can
-trace, `M-.` into, etc. There's a `defroute` macro for some syntactic
-sugar, but it isn't even mandatory.
+URI parameters map directly to `&key` and `&optional` parameters and
+there's also URL-generating logic for view code.
 
-Snooze is currently based on the great [Hunchentoot][hunchentoot], but
-I'd welcome [pull requests][issues] that make it plug into other web
-server.
+It's all done with CLOS, so every route is a method that you can
+
+* trace like a regular function
+* find its definition with`M-.`
+* delete
+
+There's a `defroute` macro for some syntactic sugar, but it isn't even
+mandatory.
+
+Snooze's currently backend implementation is based on the great
+[Hunchentoot][hunchentoot], but I'd welcome [pull requests][issues]
+that make it plug into other web server.
 
 Up and running
 --------------
@@ -110,8 +118,8 @@ single `defresource` definitions, much like `defmethod` can be in a
             (todo-id todo) (todo-task todo) (todo-done todo)))))
 ```
 
-Using `defresource` gives you another bonus, which is you get to
-specify an URL-generating function, in this case `todo-url`, to use in
+Using `defresource` gives you another bonus, which it gives you an
+URL-generating function for free, in this case `todo-url`, to use in
 your view code:
 
 ```
@@ -124,7 +132,39 @@ SNOOZE-DEMO> (todo-url 3 :protocol "https" :host "localhost")
 What happens if I add &optional or &key?
 ----------------------------------------
 
-That's a very good question, and thanks for asking :grin:
+That's a very good question, and thanks for asking :grin:. They're
+allowed, of course, and their values deduced from URI parameters.
+
+Confusing? Consider a route that lets you filter the `todo` items:
+
+```
+(snooze:defresource todos (verb content-type &key from to substring)
+  (:genurl todos-url)
+  (:route (:get "text/plain" &key from to substring)
+          (format
+           nil "~{~a~^~%~}"
+           (mapcan #'todo-task
+                   (remove-if-not (lambda (todo)
+                                    (and (or (not from)
+                                             (> (todo-id todo) from))
+                                         (or (not to)
+                                             (< (todo-id todo) to))
+                                         (or (not substring)
+                                             (search substring
+                                                     (todo-task todo)))))
+                                  *todos*)))))
+```
+
+The function that you get for free is now `todos-url` and does this:
+
+```
+SNOOZE-DEMO> (todos-url :from 3 :to 6 :substring "d")
+"todos/?from=3&to=6&substring=d"
+SNOOZE-DEMO> (todos-url :from 3)
+"todos/?from=3"
+SNOOZE-DEMO> (todos-url)
+"todos/"
+```
 
 Controlling errors
 ------------------
