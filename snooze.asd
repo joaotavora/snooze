@@ -5,7 +5,10 @@
   :description "Snooze is a web framework setting up REST routes using CLOS."
   :serial t
   :components ((:file "package")
-               (:file "snooze")))
+               (:file "backend")
+               (:file "mime-types")
+               (:file "snooze")
+               (:file "snooze-hunchentoot")))
 
 (asdf:defsystem :snooze-tests
   :depends-on (#:snooze #:fiasco #:drakma #:babel)

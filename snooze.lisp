@@ -1,19 +1,5 @@
 (in-package #:snooze)
 
-
-;;; Implementation-facing API
-;;;
-(defgeneric start-with-backend (server backend)
-  (:documentation "How to start running SERVER on BACKEND."))
-
-(defgeneric stop-with-backend (server backend)
-  (:documentation "How to stop running SERVER on BACKEND."))
-
-(defgeneric started-p-with-backend (server backend)
-  (:documentation "How to tell if still running SERVER on BACKEND."))
-
-(defgeneric backend (server)
-  (:documentation "The implementation object for SERVER"))
 
 
 ;;; User facing API
@@ -50,27 +36,27 @@
      Value can be a string or a function designator.")
    (backend
     :reader backend
-    :documentation "Backend cache"))
+    :documentation "The backend implementation object"))
   (:documentation "HTTP server for handling RESTful routes"))
 
 (defun start (server)
   "Start the Snooze REST server in SERVER"
-  (start-with-backend server (backend server)))
+  (snooze-backend:start server (backend server)))
 
 (defun stop (server)
   "Stop the Snooze REST server in SERVER"
-  (stop-with-backend server (backend server)))
+  (snooze-backend:stop server (backend server)))
 
 (defun started-p (server)
-  (started-p-with-backend server (backend server)))
+  (snooze-backend:started-p server (backend server)))
 
-(defgeneric explain-condition (acceptor c)
+(defgeneric explain-condition (server c)
   (:documentation
-   "In the context of ACCEPTOR, explain exceptional condition C to client."))
+   "In the context of SERVER, explain exceptional condition C to client."))
 
-(defgeneric convert-arguments (acceptor resource actual-arguments)
-  (:method (acceptor resource args)
-    (declare (ignore acceptor resource))
+(defgeneric convert-arguments (server resource actual-arguments)
+  (:method (server resource args)
+    (declare (ignore server resource))
     (mapcar #'(lambda (arg)
                 (let ((probe (let ((*read-eval* nil))
                                  (ignore-errors
@@ -78,27 +64,44 @@
                   (if (numberp probe) probe arg)))
             args))
   (:documentation
-   "In the context of ACCEPTOR, make ACTUAL-ARGUMENTS fit RESOURCE.
+   "In the context of SERVER, make ACTUAL-ARGUMENTS fit RESOURCE.
 Should return a list equal to ACTUAL-ARGUMENTS, which is a list of
 strings, but where some strings have been converted to other types.
 The default method tries to convert every arguments to a number."))
 
-(defgeneric expand-content-type (acceptor resource content-type-class)
-  (:method (acceptor resource content-type-class)
-    (declare (ignore acceptor resource))
+(defgeneric expand-content-type (server resource content-type-class)
+  (:method (server resource content-type-class)
+    (declare (ignore server resource))
     (list content-type-class))
-  (:method (acceptor resource (content-type-class supertype-metaclass))
+  (:method (server resource (content-type-class supertype-metaclass))
     (reduce #'append
             (mapcar
-             (alexandria:curry #'expand-content-type acceptor resource)
+             (alexandria:curry #'expand-content-type server resource)
                     (closer-mop:class-direct-subclasses content-type-class))))
   (:documentation
-   "For ACCEPTOR and RESOURCE, expand CONTENT-TYPE-CLASS.
+   "For SERVER and RESOURCE, expand CONTENT-TYPE-CLASS.
 Resource is a generic function designating a REST resource. The goal
 of this function is to expand wildcard content-types like
 \"application/*\" into specific content-types to probe RESOURCE with.
 The default implementation is very inneficient, it ignores resource
 and completely expands the wildcard content-type."))
+
+
+
+;;; Some innards already
+;;; 
+(defmethod initialize-instance :after ((server snooze-server)
+                                       &rest args
+                                       &key (backend :hunchentoot)
+                                       &allow-other-keys)
+  (declare (ignore route-packages))
+  (setf (slot-value server 'backend)
+        (apply #'make-instance (snooze-backend:backend-class backend) :server server
+               (loop for (k v) on args by #'cddr
+                     unless (member k '(:route-packages :resource-name-regexp
+                                        :fall-through-p :home-resource))
+                       collect k and collect v))))
+
 
 
 ;;; Verbs
@@ -188,7 +191,7 @@ and completely expands the wildcard content-type."))
 
 (defmacro define-known-content-types ()
   `(progn
-     ,@(loop for (type-spec . nil) in hunchentoot::*mime-type-list*
+     ,@(loop for (type-spec . nil) in *mime-type-list*
              for matches = (nth-value 1 (cl-ppcre:scan-to-strings "(.*/.*)(?:;.*)?" type-spec))
              for type = (and matches (aref matches 0))
              when type
@@ -201,9 +204,9 @@ and completely expands the wildcard content-type."))
   (define-known-content-types))
 
 
-;;; DEFROUTE Helpers
+;;; Helpers
 ;;; 
-(defun find-class-1 (sym)
+(defun probe-class-sym (sym)
   "Like CL:FIND-CLASS but don't error and return SYM or nil"
   (when (find-class sym nil)
     sym))
@@ -346,8 +349,8 @@ and completely expands the wildcard content-type."))
                          "Coercing verb-designating type T in ~a to ~s"
                               verb-spec 'snooze-verbs:http-verb)
                         'snooze-verbs:http-verb))
-                 (find-class-1 (intern (string-upcase designator)
-                                       :snooze-verbs))
+                 (probe-class-sym (intern (string-upcase designator)
+                                          :snooze-verbs))
                  (error "Sorry, don't know the HTTP verb ~a"
                         (string-upcase designator)))))
     (cond ((and verb-spec
@@ -422,7 +425,6 @@ and completely expands the wildcard content-type."))
 
 ;; Conditions
 ;;
-
 (defmacro define-error (code &optional default-msg)
   (let ((sym (intern (princ-to-string code))))
     `(progn
@@ -453,14 +455,19 @@ and completely expands the wildcard content-type."))
             (simple-condition-format-control c)
             (simple-condition-format-arguments c)))
 
-(defmethod explain-condition (acceptor (c http-condition))
-  (declare (ignore acceptor))
+(defmethod explain-condition (server (c http-condition))
+  (declare (ignore server))
   (format nil "~?" (simple-condition-format-control c)
           (simple-condition-format-arguments c)))
 
-(defmethod explain-condition (acceptor (c error))
-  (declare (ignore acceptor))
+(defmethod explain-condition (server (c error))
+  (declare (ignore server))
   "Something nasty happened")
+
+(defparameter *always-explain-conditions* nil
+  "If non-nil, always catch and explain HTTP-CONDITION conditions.
+This is even if the backend is configured not to catch errors.")
+
 
 
 ;; DEFRESOURCE and DEFROUTE macros
@@ -544,48 +551,8 @@ and completely expands the wildcard content-type."))
          ,@remaining))))
 
 
-;;; Hunchentoot implementation
+;;; Helpers for implementations
 ;;;
-;;; TODO: factor out helpers like DEFINE-DELEGATED-ACCESSORS,
-;;; PARSE-ARGS-IN-URI, FIND-RESOURCE-BY-NAME, PARSE-URI when more
-;;; implementations are added
-;;;
-(defclass rest-acceptor (hunchentoot:acceptor)
-  ((server :initarg :server :initform (error "required!") :accessor server)))
-
-(defmethod start-with-backend (server (backend rest-acceptor))
-  (declare (ignore server))
-  (hunchentoot:start backend))
-
-(defmethod stop-with-backend (server (backend rest-acceptor))
-  (declare (ignore server))
-  (hunchentoot:stop backend))
-
-(defmethod started-p-with-backend (server (backend rest-acceptor))
-  (declare (ignore server))
-  (hunchentoot:started-p backend))
-
-(defmethod initialize-instance :after ((server snooze-server)
-                                       &rest args
-                                       &key route-packages
-                                       &allow-other-keys)
-  (declare (ignore route-packages))
-  (setf (slot-value server 'backend)
-        (apply #'make-instance 'rest-acceptor :server server
-               (loop for (k v) on args by #'cddr
-                     unless (member k '(:route-packages :resource-name-regexp
-                                        :fall-through-p :home-resource))
-                       collect k and collect v))))
-
-(defmacro define-delegated-accessors (class delegate accessor-names)
-  `(progn
-     ,@(loop for name in accessor-names
-             collect `(defmethod ,name ((backend ,class))
-                        (,name (funcall ,delegate backend))))))
-
-(define-delegated-accessors rest-acceptor #'server
-  (route-packages resource-name-regexp fall-through-p home-resource))
-
 (defun parse-args-in-uri (args-string query-string)
   (let* ((query-and-fragment (scan-to-strings* "(?:([^#]+))?(?:#(.*))?$"
                                                query-string))
@@ -601,16 +568,16 @@ and completely expands the wildcard content-type."))
             (when fragment
               (list 'snooze:fragment fragment)))))
 
-(defun find-resource-by-name (name acceptor)
-  (loop for package in (route-packages acceptor)
+(defun find-resource-by-name (name server)
+  (loop for package in (route-packages server)
         for sym = (find-symbol (string-upcase name) package)
           thereis (and (fboundp sym)
                        (symbol-function sym))))
 
-(defun parse-uri (script-name query-string acceptor)
-  "Parse URI for ACCEPTOR. Return values RESOURCE ARGS CONTENT-TYPE."
+(defun parse-uri (script-name query-string server)
+  "Parse URI for SERVER. Return values RESOURCE ARGS CONTENT-TYPE."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
-  (let* ((resource-name-regexp (resource-name-regexp acceptor))
+  (let* ((resource-name-regexp (resource-name-regexp server))
          (match (multiple-value-list (cl-ppcre:scan resource-name-regexp
                                                     script-name)))
          (resource-name
@@ -619,11 +586,11 @@ and completely expands the wildcard content-type."))
                        (if (plusp (length (third match)))
                            (list (aref (third match) 0) (aref (fourth match) 0))
                            (list (first match) (second match))))))
-         (first-slash-resource (find-resource-by-name resource-name acceptor))
+         (first-slash-resource (find-resource-by-name resource-name server))
          (resource (or first-slash-resource
-                       (and (home-resource acceptor)
-                            (find-resource-by-name (home-resource acceptor)
-                                                   acceptor))))
+                       (and (home-resource server)
+                            (find-resource-by-name (home-resource server)
+                                                   server))))
          (script-minus-resource (if first-slash-resource
                                     (subseq script-name (second match))
                                     script-name))
@@ -635,8 +602,7 @@ and completely expands the wildcard content-type."))
                         (subseq script-minus-resource (1+ extension-match))))
          (content-type-class (and extension
                                   (find-content-class
-                                   (hunchentoot:mime-type
-                                    (format nil "dummy.~a" extension)))))
+                                   (gethash extension *mime-type-hash*))))
          (actual-arguments (parse-args-in-uri (if content-type-class
                                                   args-string
                                                   (if (zerop (length args-string))
@@ -647,14 +613,14 @@ and completely expands the wildcard content-type."))
             actual-arguments
             content-type-class)))
 
-(defun parse-accept-header (string acceptor resource)
+(defun parse-accept-header (string server resource)
   "Return a list of class objects designating " 
   (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
         for media-range = (first (scan-to-strings* "([^;]*)"
                                                    media-range-and-params))
         for class = (find-content-class media-range)
         when class
-          append (expand-content-type acceptor resource class)))
+          append (expand-content-type server resource class)))
 
 (defun arglist-compatible-p (resource args)
   (handler-case
@@ -668,113 +634,3 @@ and completely expands the wildcard content-type."))
 (defun parse-content-type-header (string)
   "Return a symbol designating a SNOOZE-SEND-TYPE object."
   (find-content-class string))
-
-(defparameter *always-explain-conditions* nil
-  "If non-nil, explain conditions even if HUNCHENTOOT:*CATCH-ERRORS-P* is nil.")
-
-(defmethod hunchentoot:acceptor-dispatch-request :around ((acceptor rest-acceptor) request)
-  (declare (ignore request))
-  (let ((retval (call-next-method)))
-    (etypecase retval
-      (pathname (hunchentoot:handle-static-file retval))
-      (string retval))))
-
-(defmethod hunchentoot:acceptor-dispatch-request ((acceptor rest-acceptor) request)
-  (multiple-value-bind (resource args content-class)
-      (parse-uri (hunchentoot:script-name request)
-                 (hunchentoot:query-string request)
-                 acceptor)
-    (let* ((content-class
-             (or content-class
-                 (parse-content-type-header (hunchentoot:header-in :content-type request))))
-           (verb-designator (or (find-class-1
-                                 (intern (string-upcase (hunchentoot:request-method request))
-                                         :snooze-verbs))
-                                (error "Can't find HTTP verb designator for request ~a!" request)))
-           ;; FIXME: maybe use singletons here
-           (verb (and verb-designator
-                      (make-instance verb-designator))) 
-           (converted-arguments (convert-arguments acceptor resource args))
-           (accepted-classes
-             (if content-class (list content-class)
-                 (parse-accept-header (hunchentoot:header-in :accept request)
-                                      acceptor
-                                      resource))))
-      (handler-bind ((error
-                       (lambda (c)
-                           (setf (hunchentoot:aux-request-value 'explain-condition) c)))
-                     (http-condition
-                       (lambda (c)
-                         (setf (hunchentoot:return-code*) (code c))
-                         (when (or hunchentoot:*catch-errors-p*
-                                   *always-explain-conditions*)
-                           (hunchentoot:abort-request-handler)))))
-        (cond ((not resource)
-               (if (fall-through-p acceptor)
-                   (call-next-method)
-                   (error 'no-such-route
-                          :format-control
-                          "So sorry, but that URI doesn't match any REST resources")))
-              ((not (arglist-compatible-p resource converted-arguments))
-               (error 'no-such-route
-                      :format-control
-                      "Too many, too few, or unsupported query arguments for REST resource ~a"
-                      :format-arguments
-                      (list resource)))
-              (t
-               (etypecase verb
-                 ;; For the Accept: header
-                 (snooze-verbs:sending-verb
-                  (let ((try-list accepted-classes)
-                        (retval))
-                    (loop do (unless try-list
-                               (error 'no-matching-content-types
-                                      :accepted-classes accepted-classes
-                                      :format-control
-                                      "No matching routes for verb~%  ~a~%on resource~%  ~a~%and accept list~%  ~a"
-                                      :format-arguments
-                                      (list verb resource
-                                            (mapcar #'class-name accepted-classes))))
-                            thereis
-                            (block try-again
-                              (handler-bind ((no-such-route
-                                               #'(lambda (c)
-                                                   (declare (ignore c))
-                                                   (return-from try-again nil))))
-                                ;; autosetting the reply's content-type
-                                ;; before the method call gives the
-                                ;; route a chance to override it.
-                                ;;
-                                (let ((content-type (pop try-list)))
-                                  (setf (hunchentoot:content-type*)
-                                        (string (class-name content-type)))
-                                  (setq retval
-                                        (apply resource
-                                               verb
-                                               ;; FIXME: maybe use singletons here
-                                               (make-instance (class-name content-type))
-                                               converted-arguments))
-                                  t))))
-                    retval))
-                 (snooze-verbs:receiving-verb
-                  (apply resource
-                         verb
-                         (make-instance (class-name content-class) 
-                                        :content-body
-                                        (hunchentoot:raw-post-data :request request))
-                         converted-arguments)))))))))
-
-(defmethod hunchentoot:acceptor-status-message ((acceptor rest-acceptor) status-code
-                                                &rest args
-                                                &key error backtrace
-                                                &allow-other-keys)
-  (declare (ignore error backtrace status-code))
-  (let* ((condition (hunchentoot:aux-request-value 'explain-condition hunchentoot:*request*)))
-    (if condition
-        (explain-condition (server acceptor) condition)
-        (call-next-method))))
-
-    
-
-
-
