@@ -111,7 +111,11 @@
                  (snooze-verbs:receiving-verb
                   (apply resource
                          verb
-                         (make-instance (class-name content-class) 
+                         ;; FIXME: no content class in the client's request,
+                         ;; 
+                         (make-instance (if content-class
+                                            (class-name content-class)
+                                            'snooze-types:content) 
                                         :content-body
                                         (hunchentoot:raw-post-data :request request))
                          converted-arguments)))))))))
