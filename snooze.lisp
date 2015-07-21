@@ -453,10 +453,14 @@ and completely expands the wildcard content-type."))
             (simple-condition-format-control c)
             (simple-condition-format-arguments c)))
 
-(defmethod explain-condition (acceptor c)
+(defmethod explain-condition (acceptor (c http-condition))
   (declare (ignore acceptor))
   (format nil "~?" (simple-condition-format-control c)
           (simple-condition-format-arguments c)))
+
+(defmethod explain-condition (acceptor (c error))
+  (declare (ignore acceptor))
+  "Something nasty happened")
 
 
 ;; DEFRESOURCE and DEFROUTE macros
@@ -666,7 +670,7 @@ and completely expands the wildcard content-type."))
   (find-content-class string))
 
 (defparameter *always-explain-conditions* nil
-  "If non-nil, explain conditions even if HUNCHENTOOT:CATCH-ERRORS-P is nil.")
+  "If non-nil, explain conditions even if HUNCHENTOOT:*CATCH-ERRORS-P* is nil.")
 
 (defmethod hunchentoot:acceptor-dispatch-request :around ((acceptor rest-acceptor) request)
   (declare (ignore request))
@@ -696,14 +700,15 @@ and completely expands the wildcard content-type."))
                  (parse-accept-header (hunchentoot:header-in :accept request)
                                       acceptor
                                       resource))))
-      (handler-bind ((http-condition
-                       #'(lambda (c)
-                           ;; FIXME: make this a restart
-                           (when (or hunchentoot:*catch-errors-p*
-                                     *always-explain-conditions*)
-                             (setf (hunchentoot:return-code*) (code c))
-                             (hunchentoot:abort-request-handler
-                              (explain-condition acceptor c))))))
+      (handler-bind ((error
+                       (lambda (c)
+                           (setf (hunchentoot:aux-request-value 'explain-condition) c)))
+                     (http-condition
+                       (lambda (c)
+                         (setf (hunchentoot:return-code*) (code c))
+                         (when (or hunchentoot:*catch-errors-p*
+                                   *always-explain-conditions*)
+                           (hunchentoot:abort-request-handler)))))
         (cond ((not resource)
                (if (fall-through-p acceptor)
                    (call-next-method)
@@ -755,13 +760,21 @@ and completely expands the wildcard content-type."))
                   (apply resource
                          verb
                          (make-instance (class-name content-class) 
-                           :content-body
-                           (hunchentoot:raw-post-data :request request))
+                                        :content-body
+                                        (hunchentoot:raw-post-data :request request))
                          converted-arguments)))))))))
 
-(defmethod hunchentoot:acceptor-status-message ((acceptor rest-acceptor) status-code &key
+(defmethod hunchentoot:acceptor-status-message ((acceptor rest-acceptor) status-code
+                                                &rest args
+                                                &key error backtrace
                                                 &allow-other-keys)
-  (declare (ignore status-code))
-  (call-next-method))
+  (declare (ignore error backtrace status-code))
+  (let* ((condition (hunchentoot:aux-request-value 'explain-condition hunchentoot:*request*)))
+    (if condition
+        (explain-condition (server acceptor) condition)
+        (call-next-method))))
+
+    
+
 
 
