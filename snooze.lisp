@@ -3,7 +3,7 @@
 
 
 ;;; User facing API
-n;;;
+;;;
 (defclass snooze-server ()
   ((route-packages
     :initform (error "ROUTE-PACKAGES is a mandatory initarg")
