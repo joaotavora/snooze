@@ -3,7 +3,7 @@
 
 
 ;;; User facing API
-;;;
+n;;;
 (defclass snooze-server ()
   ((route-packages
     :initform (error "ROUTE-PACKAGES is a mandatory initarg")
@@ -593,10 +593,14 @@ This is even if the backend is configured not to catch errors.")
                            (list (aref (third match) 0) (aref (fourth match) 0))
                            (list (first match) (second match))))))
          (first-slash-resource (find-resource-by-name resource-name server))
-         (resource (or first-slash-resource
-                       (and (home-resource server)
-                            (find-resource-by-name (home-resource server)
-                                                   server))))
+         (resource (or (and resource-name first-slash-resource)
+                       (let ((home (home-resource server)))
+                         (cond ((functionp home)
+                                home)
+                               ((symbolp home)
+                                (fboundp home))
+                               ((stringp home)
+                                (find-resource-by-name home server))))))
          (script-minus-resource (if first-slash-resource
                                     (subseq script-name (second match))
                                     script-name))
