@@ -6,7 +6,8 @@
 ;;;
 (defclass snooze-server ()
   ((route-packages
-    :initform (list *package*) :initarg :route-packages
+    :initform (error "ROUTE-PACKAGES is a mandatory initarg")
+    :initarg :route-packages
     :accessor route-packages
     :documentation
     "A list of packages to look for routes.
@@ -92,9 +93,14 @@ and completely expands the wildcard content-type."))
 ;;; 
 (defmethod initialize-instance :after ((server snooze-server)
                                        &rest args
-                                       &key (backend :hunchentoot)
+                                       &key
+                                         (backend :hunchentoot)
+                                         route-packages
                                        &allow-other-keys)
-  (declare (ignore route-packages))
+  (assert (listp route-packages) nil "ROUTE-PACKAGES must be a list")
+  (loop for package in route-packages
+        do (assert (find-package package) nil "~a in ROUTE-PACKAGES is not a package!"
+                   package))
   (setf (slot-value server 'backend)
         (apply #'make-instance (snooze-backend:backend-class backend) :server server
                (loop for (k v) on args by #'cddr
