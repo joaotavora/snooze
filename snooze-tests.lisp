@@ -30,7 +30,7 @@
 
     (signals error (cts '"text/html-typo"))))
 
-(defpackage :snooze-parse-uri-tests
+(cl:defpackage #:snooze-parse-uri-tests
   (:use :snooze :cl)
   (:export #:bla #:root #:yo))
 (in-package :snooze-parse-uri-tests)
@@ -110,7 +110,7 @@
 
 ;;; Some tests from the READEM.md
 ;;;
-(defpackage :snooze-demo (:use :cl))
+(cl:defpackage :snooze-demo (:use :cl))
 (in-package :snooze-demo)
 
 (defparameter *todo-counter* 0)

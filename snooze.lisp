@@ -1,5 +1,18 @@
 (in-package #:snooze)
 
+
+;;; Early setup
+;;;
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defclass supertype-metaclass (standard-class) ())
+
+  (defmethod closer-mop:validate-superclass ((class supertype-metaclass)
+                                             (superclass standard-class))
+    t)
+
+  (defmethod closer-mop:validate-superclass ((superclass standard-class)
+                                             (class supertype-metaclass))
+    t))
 
 
 ;;; User facing API
@@ -151,17 +164,6 @@ and completely expands the wildcard content-type."))
 (defpackage :snooze-types (:use) (:export #:content))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-
-  (defclass supertype-metaclass (standard-class) ())
-
-  (defmethod closer-mop:validate-superclass ((class supertype-metaclass)
-                                             (superclass standard-class))
-    t)
-
-  (defmethod closer-mop:validate-superclass ((superclass standard-class)
-                                             (class supertype-metaclass))
-    t)
-
   (defclass snooze-types:content ()
     ((content-body :initarg :content-body
                    :accessor content-body
@@ -503,9 +505,13 @@ This is even if the backend is configured not to catch errors.")
                                  (make-genurl-form (second option) name
                                                    (nthcdr 2 lambda-list)))
                  else
-                   collect option)))
+                   collect option))
+         (simplified-lambda-list (mapcar #'(lambda (argspec)
+                                             (ensure-atom argspec))
+                                         lambda-list)))
     `(progn
-       (defgeneric ,name ,lambda-list ,@defgeneric-args)
+       (defgeneric ,name ,simplified-lambda-list
+         ,@defgeneric-args)
        (defmethod no-applicable-method ((f (eql (function ,name))) &rest args)
          (error 'no-such-route
                 :format-control "No applicable route ~%  ~a~%when called with args ~%  ~a" 
@@ -515,9 +521,7 @@ This is even if the backend is configured not to catch errors.")
           (lambda ,lambda-list
             (declare (ignore ,@(remove-if #'(lambda (sym)
                                               (eq #\& (aref (symbol-name sym) 0)))
-                                          (mapcar #'(lambda (argspec)
-                                                      (ensure-atom argspec))
-                                                  lambda-list)))))
+                                          simplified-lambda-list))))
           actual-arguments))
        (defmethod resource-p ((f (eql (function ,name)))) t)
        ,@(if genurl-form `(,genurl-form)))))

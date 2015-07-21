@@ -1,9 +1,7 @@
 ;;; Hunchentoot Snooze implementation
 ;;;
-(defpackage #:snooze-hunchentoot
-  (:export
-   #:parse-uri
-   #:code))
+(cl:defpackage #:snooze-hunchentoot
+  (:use :cl))
 (in-package #:snooze-hunchentoot)
 
 (defclass rest-acceptor (hunchentoot:acceptor)
