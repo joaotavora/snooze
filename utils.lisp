@@ -71,12 +71,14 @@
 
 (defun parse-accept-header (string)
   "Return a list of class objects designating " 
-  (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
+  (labels ((expand (class)
+             (cons class (mapcan #'expand (closer-mop:class-direct-subclasses class)))))
+    (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
         for media-range = (first (scan-to-strings* "([^;]*)"
                                                    media-range-and-params))
         for class = (find-content-class media-range)
         when class
-          append (cons class (closer-mop:class-direct-subclasses class))))
+          append (expand class))))
 
 (defun arglist-compatible-p (resource args)
   (handler-case
