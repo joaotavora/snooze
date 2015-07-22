@@ -1,7 +1,7 @@
 Snooze
 =======
 
-_Snooze_ is a framework for designing REST web services in Common Lisp. 
+_Snooze_ is a framework for building REST web services in Common Lisp. 
 
 Here's a small sample
 
@@ -30,26 +30,35 @@ http://localhost:9003/probe-symbol/defroute?package=snooze
 Rationale
 ---------
 
-_Snooze_ takes advantage of the fact that REST operations can be seen
-as function call on resources. So it uses the readily available CLOS
-dispatching mechanisms and maps them to REST concepts like HTTP verbs,
-content types to set up routes resources.
+_Snooze_ sees the operations of Representation State Transfer (REST)
+as really only **function calls** on resources.
 
-So `GET`ting the list of the Beatles in JSON format has the URL
-`/beatles` and matches the function:
+It maps *REST concepts* like resources, HTTP verbs, content-types and
+URI queries to *Common Lisp concepts* like generic functions,
+lambda-lists and and argument specializers.
+
+So, for example, `GET`ting the list of the Beatles in JSON format by
+order of most guitars owned is asking for the URI
+`/beatles?sort-by=number_of_guitars`, which matches the following
+function:
 
 ```lisp
-(snooze:defroute beatles (:get "application/json" &key (sort-by #'number-of-guitars))
-  (jsonify (all-the-beatles)))
+(snooze:defroute beatles (:get "application/json" &key (sort-by #'age))
+  (jsonify (sort #'> (all-the-beatles) :key sort-by)))
 ```
 
-URI parameters map directly to `&key` and `&optional` parameters and
-there are also URL generator/helpers for view code.
+Content-type matching is automatically taken care of: only
+`application/json`-accepting requests are accepted by this
+snippet. Argument parsing in the URI, including `?param=value` and
+`#fragment` bits is also automatically handled (but can be customized
+if you don't like the default).
 
-Because it's all done with CLOS, every route is a method:
+Because it's all done with CLOS, every route is a method, so you can.
 
-* you can trace it like a regular function
-* find definition its definition with `M-.`
+* `cl:trace` it like a regular function
+* find its definition with `M-.`
+* reuse other methods using `call-next-method`
+* use `:after`, `:before` and `:around` qualifiers
 * delete the route by deleting the method
 
 Snooze's only current backend implementation is based on the great
