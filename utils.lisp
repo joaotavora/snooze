@@ -69,16 +69,25 @@
             actual-arguments
             content-type-class)))
 
-(defun parse-accept-header (string)
-  "Return a list of class objects designating " 
-  (labels ((expand (class)
-             (cons class (mapcan #'expand (closer-mop:class-direct-subclasses class)))))
-    (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
-        for media-range = (first (scan-to-strings* "([^;]*)"
-                                                   media-range-and-params))
-        for class = (find-content-class media-range)
-        when class
-          append (expand class))))
+(defun prefilter-accepts-header (string resource)
+  "Parse STRING to list SNOOZE-TYPES:CONTENT classes for RESOURCE"
+  (let ((resource-accepted-classes
+          (mapcar #'second (mapcar #'closer-mop:method-specializers
+                                   (closer-mop:generic-function-methods resource)))))
+    (labels ((useful-subclasses-of (class)
+               (when (some (lambda (rac)
+                             (or (subtypep (class-name class) (class-name rac))
+                                 (subtypep (class-name rac) (class-name class))))
+                           resource-accepted-classes)
+                 (let ((subclasses (closer-mop:class-direct-subclasses class)))
+                   (if subclasses
+                       (mapcan #'useful-subclasses-of (closer-mop:class-direct-subclasses class))
+                       (list class))))))
+      (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
+            for media-range = (first (scan-to-strings* "([^;]*)" media-range-and-params))
+            for class = (find-content-class media-range)
+            when class
+              append (useful-subclasses-of class)))))
 
 (defun arglist-compatible-p (resource args)
   (handler-case

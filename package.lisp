@@ -55,10 +55,10 @@
   (:use #:cl #:snooze-common)
   (:export
    #:parse-uri
-   #:parse-accept-header
    #:arglist-compatible-p
    #:parse-content-type-header
-   #:find-verb-or-lose))
+   #:find-verb-or-lose
+   #:prefilter-accepts-header))
 
 (defpackage #:snooze-backend
   (:use :cl)
