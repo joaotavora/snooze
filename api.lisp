@@ -180,10 +180,13 @@ and completely expands the wildcard content-type."))
 (define-condition |404| (http-condition) () (:default-initargs :status-code 404))
 
 (defun http-error (status-code
-                   &optional format-control format-args)
-  (declare (ignore format-control format-arguments))
+                   &optional (format-control nil format-control-supplied-p)
+                             (format-args nil format-args-supplied-p))
   (apply #'error 'http-condition :status-code status-code
-         args))
+         `(,@(if format-args-supplied-p
+                 `(:format-arguments ,format-args))
+           ,@(if format-control-supplied-p
+                 `(:format-control ,format-control)))))
 
 (define-condition no-such-resource (|404|) ()
   (:default-initargs

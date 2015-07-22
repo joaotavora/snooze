@@ -10,7 +10,7 @@
     ("application/java-archive" "jar")
     ("application/java-serialized-object" "ser")
     ("application/java-vm" "class")
-    ("application/json" "class")
+    ("application/json" "json")
     ("application/mac-binhex40" "hqx")
     ("application/mac-compactpro" "cpt")
     ("application/mathematica" "nb")
