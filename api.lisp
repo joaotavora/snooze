@@ -228,10 +228,11 @@ This is even if the backend is configured not to catch errors.")
         do (assert (find-package package) nil "~a in ROUTE-PACKAGES is not a package!"
                    package))
   (setf (slot-value server 'backend)
-        (apply #'make-instance (snooze-backend:backend-class backend) :server server
+        (apply #'make-instance (snooze-backend:backend-class backend)
                (loop for (k v) on args by #'cddr
                      unless (member k '(:route-packages :resource-name-regexp
-                                        :fall-through-p :home-resource))
+                                        :fall-through-p :home-resource :backend
+                                        snooze-backend:server))
                        collect k and collect v))))
 
 (defmethod print-object ((c http-condition) s)

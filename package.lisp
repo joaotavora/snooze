@@ -1,3 +1,5 @@
+(in-package :cl)
+
 (defpackage #:snooze-common
   (:use #:cl)
   (:export
@@ -63,6 +65,7 @@
 (defpackage #:snooze-backend
   (:use :cl)
   (:export
+   #:server
    #:backend
    #:start
    #:stop

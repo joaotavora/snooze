@@ -6,7 +6,7 @@
 (in-package #:snooze-hunchentoot)
 
 (defclass rest-acceptor (hunchentoot:acceptor)
-  ((server :initarg :server :initform (error "required!") :accessor server)))
+  ((server :initarg snooze-backend:server :initform (error "required!") :accessor server)))
 
 (defmethod snooze-backend:start (server (backend rest-acceptor))
   (declare (ignore server))

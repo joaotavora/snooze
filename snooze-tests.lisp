@@ -64,6 +64,7 @@
   (multiple-value-bind (resource args)
       (parse-uri-1 "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
                    (make-instance 'snooze-server
+                                  
                                   :route-packages (route-packages server)
                                   :resource-name-regexp "/ignored/([^/]+)/"))
     (is (equal args
@@ -178,8 +179,9 @@
 
 (defun call-with-server-setup (use-this-server packages fn)
   (let* ((server (or use-this-server
-                     (make-instance 'snooze:snooze-server :port 0
-                                    :route-packages nil)))
+                     (make-instance 'snooze:snooze-server :port 3434
+                                    :route-packages nil
+                                    :backend :clack)))
          (saved-catch-errors hunchentoot:*catch-errors-p*)
          (saved-packages (snooze:route-packages server)))
     (unwind-protect
@@ -188,10 +190,9 @@
            (setf (snooze::route-packages server) packages)
            (snooze:start server)
            (let ((*actual-port*
-                   #+(or allegro sbcl)
-                   (usocket:get-local-port
-                    (hunchentoot::acceptor-listen-socket
-                     (snooze::backend server)))))
+                   3434
+                   ;; (clacktest::server-port (snooze::backend server))
+                   ))
              (funcall fn)))
       (setf (snooze::route-packages server) saved-packages)
       (setq hunchentoot:*catch-errors-p* saved-catch-errors)
