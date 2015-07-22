@@ -34,6 +34,7 @@
    #:defresource
    #:defroute
    #:fragment
+   #:convert-arguments
    ;; error handling
    ;; 
    #:http-condition
@@ -46,10 +47,6 @@
    #:no-matching-content-types
    #:explain-condition
    #:*always-explain-conditions*
-   ;; advanced thingies
-   ;; 
-   #:convert-arguments
-   #:expand-content-type
    ;; request handling helpers
    ;; 
    #:request-body))

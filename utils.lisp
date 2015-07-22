@@ -69,14 +69,14 @@
             actual-arguments
             content-type-class)))
 
-(defun parse-accept-header (string server resource)
+(defun parse-accept-header (string)
   "Return a list of class objects designating " 
   (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
         for media-range = (first (scan-to-strings* "([^;]*)"
                                                    media-range-and-params))
         for class = (find-content-class media-range)
         when class
-          append (snooze:expand-content-type server resource class)))
+          append (cons class (closer-mop:class-direct-subclasses class))))
 
 (defun arglist-compatible-p (resource args)
   (handler-case

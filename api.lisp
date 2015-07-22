@@ -42,11 +42,13 @@
 
 (defun start (server)
   "Start the Snooze REST server in SERVER"
-  (snooze-backend:start server (backend server)))
+  (snooze-backend:start server (backend server))
+  server)
 
 (defun stop (server)
   "Stop the Snooze REST server in SERVER"
-  (snooze-backend:stop server (backend server)))
+  (snooze-backend:stop server (backend server))
+  server)
 
 (defun started-p (server)
   (snooze-backend:started-p server (backend server)))
@@ -65,26 +67,10 @@
             args))
   (:documentation
    "In the context of SERVER, make ACTUAL-ARGUMENTS fit RESOURCE.
-Should return a list equal to ACTUAL-ARGUMENTS, which is a list of
-strings, but where some strings have been converted to other types.
-The default method tries to convert every arguments to a number."))
-
-(defgeneric expand-content-type (server resource content-type-class)
-  (:method (server resource content-type-class)
-    (declare (ignore server resource))
-    (list content-type-class))
-  (:method (server resource (content-type-class supertype-metaclass))
-    (reduce #'append
-            (mapcar
-             (alexandria:curry #'expand-content-type server resource)
-                    (closer-mop:class-direct-subclasses content-type-class))))
-  (:documentation
-   "For SERVER and RESOURCE, expand CONTENT-TYPE-CLASS.
-RESOURCE is a generic function designating a REST resource. The goal
-of this function is to expand wildcard content-types like
-\"application/*\" into specific content-types to probe RESOURCE with.
-The default implementation is very inneficient, it ignores resource
-and completely expands the wildcard content-type."))
+Should return a list of the same length as ACTUAL-ARGUMENTS, which is
+a list of strings, but where some strings have been converted to other
+types.  The default method tries to convert every arguments to a
+number."))
 
 
 ;;; Route definition

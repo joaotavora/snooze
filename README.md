@@ -6,6 +6,9 @@ _Snooze_ is a framework for designing REST web services in Common Lisp.
 Here's a small sample
 
 ```lisp
+(defpackage :snooze-symbols)
+(in-package :snooze-symbols)
+
 (snooze:defroute probe-symbol (:get "text/plain" symbol-name &key (package :cl))
   (if (and (find-package (string-upcase package))
            (find-symbol (string-upcase symbol-name)
@@ -118,13 +121,39 @@ Here's the method that updates a `todo`'s data using a PUT request
 
 
 ```lisp
-(snooze:defroute todo (:put content id)
+(snooze:defroute todo (:put (payload "text/plain") id)
   (let ((todo (find-todo-or-lose id)))
     (setf (todo-task todo) (snooze:request-body))))
 ```
 
-In this snippet, `content` could be `"application/json"` to make the
-server also accept JSON input.
+To make the route accept JSON content:
+
+```lisp
+(snooze:defroute todo (:put (payload "application/json") id)
+  (let ((todo (find-todo-or-lose id)))
+    (setf (todo-task todo) (snooze:request-body))))
+```
+
+It could also be just
+
+```lisp
+(snooze:defroute todo (:put payload id)...)
+```
+
+To have the route accept any kind of content, or even
+
+```lisp
+(snooze:defroute todo (:put (payload "text/*") id)...)
+```
+
+To accept only text-based content. `call-next-method` works as
+normally so you can reuse behaviour between routes. If a route fails
+to match (because the client's `Accepts:` header was too restrictive
+or because its `Content-type:` is unsupported by the server), no
+routes are applicable and the client gets a 404.
+
+More tricks
+-----------
 
 Another trick is to coalesce all the `defroute` definitions into a
 single `defresource` definitions, much like `defmethod` can be in a
@@ -144,7 +173,7 @@ single `defresource` definitions, much like `defmethod` can be in a
             (todo-id todo) (todo-task todo) (todo-done todo)))))
 ```
 
-Using `defresource` gives you another bonus, which it gives you an
+Using `defresource` gives you another bonus, in the form of an
 URL-generating function for free, in this case `todo-url`, to use in
 your view code:
 

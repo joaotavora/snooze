@@ -53,11 +53,9 @@
                    (snooze-utils:parse-content-type-header (hunchentoot:header-in :content-type request))))
              (verb (snooze-utils:find-verb-or-lose (hunchentoot:request-method request)))
              (converted-arguments (snooze:convert-arguments acceptor resource args))
-             (accepted-classes
+             (client-accepted-classes
                (if content-class (list content-class)
-                   (snooze-utils:parse-accept-header (hunchentoot:header-in :accept request)
-                                               (server acceptor)
-                                               resource))))
+                   (snooze-utils:parse-accept-header (hunchentoot:header-in :accept request)))))
         (cond ((not resource)
                (if (snooze:fall-through-p (server acceptor))
                    (call-next-method)
@@ -74,11 +72,20 @@
                (etypecase verb
                  ;; For the Accept: header
                  (snooze-verbs:sending-verb
-                  (let ((try-list accepted-classes)
-                        (retval))
+                  (let* ((resource-accepted-classes
+                           (mapcar #'second (mapcar #'closer-mop:method-specializers
+                                                    (closer-mop:generic-function-methods resource))))
+                         (try-list
+                           (remove-if-not #'(lambda (class)
+                                              (find-if #'(lambda (rac)
+                                                           (subtypep (class-name class)
+                                                                     (class-name rac)))
+                                                       resource-accepted-classes))
+                                          client-accepted-classes))
+                         (retval))
                     (loop do (unless try-list
                                (error 'snooze:no-matching-content-types
-                                      :accepted-classes accepted-classes))
+                                      :accepted-classes client-accepted-classes))
                             thereis
                             (block try-again
                               (handler-bind ((snooze:no-such-route
