@@ -12,5 +12,14 @@
 (defgeneric started-p (server backend)
   (:documentation "How to tell if still running SERVER on BACKEND."))
 
+(defgeneric request-body (backend)
+  (:documentation "Return the current client request's body"))
+
 (defgeneric backend-class (keyword)
   (:documentation "The CLOS class of backend for KEYWORD."))
+
+(defvar *current-server*)
+(setf (documentation '*current-server* 'variable)
+      "Backends must set this to the current server while handling the request")
+
+

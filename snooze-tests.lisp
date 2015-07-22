@@ -1,17 +1,17 @@
 (fiasco:define-test-package :snooze-tests
   (:use #:cl #:snooze)
-  (:import-from  #:snooze
+  (:import-from  #:snooze-common
                  #:verb-spec-or-lose
-                 #:content-type-spec-or-lose-1
-                 #:parse-uri
-                 #:parse-args-in-uri))
+                 #:content-type-spec-or-lose-1)
+  (:import-from #:snooze-utils
+                #:parse-uri))
 (in-package :snooze-tests)
 
 (deftest parse-verbs ()
   (handler-bind ((style-warning #'muffle-warning))
     (is (equal (verb-spec-or-lose '(foo t)) '(FOO SNOOZE-VERBS:HTTP-VERB)))
-    (is (equal (verb-spec-or-lose :get) '(SNOOZE::VERB SNOOZE-VERBS:GET)))
-    (is (equal (verb-spec-or-lose "GET") '(SNOOZE::VERB SNOOZE-VERBS:GET)))
+    (is (equal (verb-spec-or-lose :get)     '(SNOOZE-VERBS:HTTP-VERB SNOOZE-VERBS:GET)))
+    (is (equal (verb-spec-or-lose "GET")    '(SNOOZE-VERBS:HTTP-VERB SNOOZE-VERBS:GET)))
     (is (equal (verb-spec-or-lose '(v snooze-verbs:get)) '(V SNOOZE-VERBS:GET)))))
 
 (deftest parse-content-types ()
@@ -146,11 +146,8 @@
     (if todo
         (setf (todo-task todo)
               (babel:octets-to-string
-               (snooze:content-body content)))
+               (snooze:request-body)))
         (error 'snooze:404 :format-control "No such todo!"))))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (snooze:define-content "application/json"))
 
 (snooze:defresource todos (method content))
 
@@ -203,7 +200,7 @@
 
 (defmacro with-server-setup
     ((&key use-this-server
-           (packages '(:snooze-demo)))
+           (packages ''(:snooze-demo)))
      &body body)
   `(call-with-server-setup ,use-this-server ,packages #'(lambda () ,@body)))
 

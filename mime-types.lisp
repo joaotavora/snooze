@@ -1,4 +1,4 @@
-(in-package :snooze)
+(in-package :snooze-common)
 
 ;;; Stolen from Hunchentoot's *MIME-TYPE-LIST*
 (defparameter *mime-type-list*
@@ -10,6 +10,7 @@
     ("application/java-archive" "jar")
     ("application/java-serialized-object" "ser")
     ("application/java-vm" "class")
+    ("application/json" "class")
     ("application/mac-binhex40" "hqx")
     ("application/mac-compactpro" "cpt")
     ("application/mathematica" "nb")

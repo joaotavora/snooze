@@ -1,33 +1,60 @@
 Snooze
 =======
 
-Snooze is for RESTing in Common Lisp.
+_Snooze_ is a framework for designing REST web services in Common Lisp. 
 
-It's a framework for setting up routes and links to them. It invites
-you to use plain old CLOS generic functions to define routes matching:
+Here's a small sample
 
-* matching HTTP verbs
-* matching headers `Content-Type` or `Accept`, according to the verb
-* matching certain URL patterns
+```lisp
+(snooze:defroute probe-symbol (:get "text/plain" symbol-name &key (package :cl))
+  (if (and (find-package (string-upcase package))
+           (find-symbol (string-upcase symbol-name)
+                        (string-upcase package)))
+      (format nil "Hello world, package ~a has the symbol ~a" package symbol-name)
+      (snooze:http-error 404 "Sorry, no such symbol")))
+
+(snooze:start (make-instance 'snooze:snooze-server :port 9003
+                             :route-packages '(:snooze-symbols)))
+```
+
+You can now navigate to:
+
+```
+http://localhost:9003/probe-symbol/defun
+http://localhost:9003/probe-symbol/defroute?package=snooze
+```
+
+Rationale
+---------
+
+_Snooze_ takes advantage of the fact that REST operations can be seen
+as function call on resources. So it uses the readily available CLOS
+dispatching mechanisms and maps them to REST concepts like HTTP verbs,
+content types to set up routes resources.
+
+So `GET`ting the list of the Beatles in JSON format has the URL
+`/beatles` and matches the function:
+
+```lisp
+(snooze:defroute beatles (:get "application/json" &key (sort-by #'number-of-guitars))
+  (jsonify (all-the-beatles)))
+```
 
 URI parameters map directly to `&key` and `&optional` parameters and
-there's also URL-generating logic for view code.
+there are also URL generator/helpers for view code.
 
-It's all done with CLOS, so every route is a method that you can
+Because it's all done with CLOS, every route is a method:
 
-* trace like a regular function
-* find its definition with`M-.`
-* delete
+* you can trace it like a regular function
+* find definition its definition with `M-.`
+* delete the route by deleting the method
 
-There's a `defroute` macro for some syntactic sugar, but it isn't even
-mandatory.
-
-Snooze's currently backend implementation is based on the great
+Snooze's only current backend implementation is based on the great
 [Hunchentoot][hunchentoot], but I'd welcome [pull requests][issues]
 that make it plug into other web server.
 
-Up and running
---------------
+Try it out
+----------
 
 This assumes you're using a recent version of [quicklisp][quicklisp]
 
@@ -90,11 +117,10 @@ particular method.
 Here's the method that updates a `todo`'s data using a PUT request
 
 
-```
+```lisp
 (snooze:defroute todo (:put content id)
   (let ((todo (find-todo-or-lose id)))
-    (setf (todo-task todo)
-          (snooze:content-body content))))
+    (setf (todo-task todo) (snooze:request-body))))
 ```
 
 In this snippet, `content` could be `"application/json"` to make the

@@ -2,6 +2,7 @@
 ;;;
 (cl:defpackage #:snooze-hunchentoot
   (:use :cl))
+
 (in-package #:snooze-hunchentoot)
 
 (defclass rest-acceptor (hunchentoot:acceptor)
@@ -22,6 +23,9 @@
 (defmethod snooze-backend:backend-class ((key (eql :hunchentoot)))
   'rest-acceptor)
 
+(defmethod snooze-backend:request-body ((backend rest-acceptor))
+  (hunchentoot:raw-post-data))
+
 (defmethod hunchentoot:acceptor-dispatch-request :around ((acceptor rest-acceptor) request)
   (declare (ignore request))
   (let ((retval (call-next-method)))
@@ -30,43 +34,38 @@
       (string retval))))
 
 (defmethod hunchentoot:acceptor-dispatch-request ((acceptor rest-acceptor) request)
-  (handler-bind ((error
+  (handler-bind ((condition
                    (lambda (c)
                      (setf (hunchentoot:aux-request-value 'explain-condition) c)))
                  (snooze:http-condition
                    (lambda (c)
-                     (setf (hunchentoot:return-code*) (snooze:code c))
+                     (setf (hunchentoot:return-code*) (snooze:status-code c))
                      (when (or hunchentoot:*catch-errors-p*
                                snooze:*always-explain-conditions*)
                        (hunchentoot:abort-request-handler)))))
     (multiple-value-bind (resource args content-class)
-        (snooze:parse-uri (hunchentoot:script-name request)
+        (snooze-utils:parse-uri (hunchentoot:script-name request)
                           (hunchentoot:query-string request)
                           (server acceptor))
-      (let* ((content-class
+      (let* ((snooze-backend:*current-server* (server acceptor))
+             (content-class
                (or content-class
-                   (snooze:parse-content-type-header (hunchentoot:header-in :content-type request))))
-             (verb-designator (or (snooze:probe-class-sym
-                                   (intern (string-upcase (hunchentoot:request-method request))
-                                           :snooze-verbs))
-                                  (error "Can't find HTTP verb designator for request ~a!" request)))
-             ;; FIXME: maybe use singletons here
-             (verb (and verb-designator
-                        (make-instance verb-designator))) 
+                   (snooze-utils:parse-content-type-header (hunchentoot:header-in :content-type request))))
+             (verb (snooze-utils:find-verb-or-lose (hunchentoot:request-method request)))
              (converted-arguments (snooze:convert-arguments acceptor resource args))
              (accepted-classes
                (if content-class (list content-class)
-                   (snooze:parse-accept-header (hunchentoot:header-in :accept request)
+                   (snooze-utils:parse-accept-header (hunchentoot:header-in :accept request)
                                                (server acceptor)
                                                resource))))
         (cond ((not resource)
                (if (snooze:fall-through-p (server acceptor))
                    (call-next-method)
-                   (error 'snooze:no-such-route
+                   (error 'snooze:no-such-resource
                           :format-control
                           "So sorry, but that URI doesn't match any REST resources")))
-              ((not (snooze:arglist-compatible-p resource converted-arguments))
-               (error 'snooze:no-such-route
+              ((not (snooze-utils:arglist-compatible-p resource converted-arguments))
+               (error 'snooze:invalid-resource-arguments
                       :format-control
                       "Too many, too few, or unsupported query arguments for REST resource ~a"
                       :format-arguments
@@ -79,12 +78,7 @@
                         (retval))
                     (loop do (unless try-list
                                (error 'snooze:no-matching-content-types
-                                      :accepted-classes accepted-classes
-                                      :format-control
-                                      "No matching routes for verb~%  ~a~%on resource~%  ~a~%and accept list~%  ~a"
-                                      :format-arguments
-                                      (list verb resource
-                                            (mapcar #'class-name accepted-classes))))
+                                      :accepted-classes accepted-classes))
                             thereis
                             (block try-again
                               (handler-bind ((snooze:no-such-route
@@ -115,7 +109,7 @@
                                             (class-name content-class)
                                             'snooze-types:content) 
                                         :content-body
-                                        (hunchentoot:raw-post-data :request request))
+                                        (snooze:request-body))
                          converted-arguments)))))))))
 
 (defmethod hunchentoot:acceptor-status-message ((acceptor rest-acceptor) status-code
