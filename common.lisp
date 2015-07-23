@@ -24,35 +24,32 @@
 
 ;;; Content-types
 ;;;
-;;; Note that in GET requests we are only interested in the request's
-;;; "Accept" header, since GET never have useful bodies (1) and as
-;;; such don't have "Content-Type".
+;;; For PUT and POST requests we match routes based on what the client
+;;; declares to us in its "Content-Type" header. At most one CLOS
+;;; primary method may match.
+;;;
+;;; In GET requests we are only interested in the request's "Accept"
+;;; header, since GET never have useful bodies (1) and as such don't
+;;; have "Content-Type". For GET requests, the logic is actually
+;;; inverse: the routes are matched based on what the client accepts.
+;;; If it accepts a range of content-types, multiple routes (or
+;;; primary CLOS methods) are now eligible. We try many routes in
+;;; order (according to that range) until we find one that matches.
+;;;
+;;; See PREFILTER-ACCEPTS-HEADER in util.lisp.
 ;;;
 ;;; [1]: http://stackoverflow.com/questions/978061/http-get-with-request-body
-;;;
-;;; So, for GET requests, we the hierarchy is actually inverse.
 ;;;
 
 (defpackage :snooze-types (:use) (:export #:content))
 
+(defclass snooze-types:content ()
+  ((content-body :initarg :content-body
+                 :accessor content-body
+                 :documentation "A sequence containing the body of the
+                     request that the route decided to handle.")))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defclass supertype-metaclass (standard-class) ())
-
-  (defmethod closer-mop:validate-superclass ((class supertype-metaclass)
-                                             (superclass standard-class))
-    t)
-
-  (defmethod closer-mop:validate-superclass ((superclass standard-class)
-                                             (class supertype-metaclass))
-    t)
-  
-  (defclass snooze-types:content ()
-    ((content-body :initarg :content-body
-                   :accessor content-body
-                   :documentation "A sequence containing the body of the
-                     request that the route decided to handle."))
-    (:metaclass supertype-metaclass))
-  
   (defun intern-safe (designator package)
     (intern (string-upcase designator) package))
   (defun send-any-symbol (supertype)
@@ -71,8 +68,7 @@
          (supertype (intern-safe supertype-designator :snooze-types)))
     `(progn
        (unless (find-class ',supertype nil)
-         (defclass ,supertype (snooze-types:content) ()
-           (:metaclass supertype-metaclass) ))
+         (defclass ,supertype (snooze-types:content) ()))
        (defclass ,type (,supertype) ())
        (eval-when (:compile-toplevel :load-toplevel :execute)
          (export '(,type ,supertype) :snooze-types)))))
