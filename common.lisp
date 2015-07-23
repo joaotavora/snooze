@@ -90,7 +90,25 @@
 
 
 ;;; Helpers
-;;; 
+;;;
+
+(defclass resource-generic-function (cl:standard-generic-function)
+  ()
+  (:metaclass closer-mop:funcallable-standard-class))
+
+(defun find-resource (designator)
+  "Find the RESOURCE of DESIGNATOR (a symbol or a function)"
+  (let ((function (cond ((symbolp designator)
+                         (and (fboundp designator)
+                              (symbol-function designator)))
+                        ((functionp designator)
+                         designator)
+                        (t
+                         (error "~a is an invalid arg to FIND-RESOURCE" designator)))))
+    (when (and function
+               (eq 'resource-generic-function (type-of function)))
+      function)))
+
 (defun probe-class-sym (sym)
   "Like CL:FIND-CLASS but don't error and return SYM or nil"
   (when (find-class sym nil)
@@ -299,11 +317,4 @@
   (if (listp thing)
       (ensure-atom (first thing))
       thing))
-
-(defgeneric check-arguments (function actual-arguments))
-
-(defgeneric resource-p (function))
-
-(defmethod check-arguments (function actual-arguments)
-  (declare (ignore function actual-arguments)))
 

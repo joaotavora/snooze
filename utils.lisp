@@ -22,8 +22,8 @@
 (defun find-resource-by-name (name server)
   (loop for package in (snooze:route-packages server)
         for sym = (find-symbol (string-upcase name) package)
-          thereis (and (fboundp sym)
-                       (symbol-function sym))))
+          thereis (and sym
+                       (find-resource sym))))
 
 (defun parse-uri (script-name query-string server)
   "Parse URI for SERVER. Return values RESOURCE ARGS CONTENT-TYPE."
@@ -91,11 +91,10 @@
 
 (defun arglist-compatible-p (resource args)
   (handler-case
-      (progn
-        (check-arguments resource (append
-                                          (list 'dummy 'dummy)
-                                          args))
-        t)
+      (apply `(lambda ,(closer-mop:generic-function-lambda-list
+                        resource)
+                t)
+               `(dummy dummy ,@args))
     (error () nil)))
 
 (defun parse-content-type-header (string)

@@ -105,21 +105,10 @@ number."))
                                              (ensure-atom argspec))
                                          lambda-list)))
     `(progn
+       ,@(if genurl-form `(,genurl-form))
        (defgeneric ,name ,simplified-lambda-list
-         ,@defgeneric-args)
-       (defmethod no-applicable-method ((f (eql (function ,name))) &rest args)
-         (error 'no-such-route
-                :format-control "No applicable route ~%  ~a~%when called with args ~%  ~a" 
-                :format-arguments (list f args)))
-       (defmethod check-arguments ((f (eql (function ,name))) actual-arguments)
-         (apply 
-          (lambda ,lambda-list
-            (declare (ignore ,@(remove-if #'(lambda (sym)
-                                              (eq #\& (aref (symbol-name sym) 0)))
-                                          simplified-lambda-list))))
-          actual-arguments))
-       (defmethod resource-p ((f (eql (function ,name)))) t)
-       ,@(if genurl-form `(,genurl-form)))))
+         (:generic-function-class resource-generic-function)
+         ,@defgeneric-args))))
 
 (defmacro defroute (name &body args)
   (let* (;; find the qualifiers and lambda list
@@ -146,8 +135,7 @@ number."))
          (simplified-lambda-list
            (mapcar #'ensure-atom proper-lambda-list)))
     `(progn
-       (unless (and (fboundp ',name)
-                    (resource-p (function ,name)))
+       (unless (find-resource ',name)
          (defresource ,name ,simplified-lambda-list))
        (defmethod ,name ,@qualifiers
          ,proper-lambda-list

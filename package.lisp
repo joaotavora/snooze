@@ -9,9 +9,10 @@
    #:supertype-metaclass
    #:scan-to-strings*
    #:find-content-class
-   #:check-arguments
    #:probe-class-sym
-   #:*mime-type-hash*))
+   #:*mime-type-hash*
+   #:resource-generic-function
+   #:find-resource))
 
 (defpackage #:snooze
   (:use #:cl #:snooze-common)
