@@ -47,27 +47,9 @@
    #:no-such-route
    #:no-matching-content-types
    #:explain-condition
-   #:*always-explain-conditions*
+   #:*catch-http-conditions*
    ;; request handling helpers
    ;; 
    #:request-body))
 
-(defpackage #:snooze-utils
-  (:use #:cl #:snooze-common)
-  (:export
-   #:parse-uri
-   #:arglist-compatible-p
-   #:parse-content-type-header
-   #:find-verb-or-lose
-   #:prefilter-accepts-header))
 
-(defpackage #:snooze-backend
-  (:use :cl)
-  (:export
-   #:backend
-   #:start
-   #:stop
-   #:started-p
-   #:backend-class
-   #:request-body
-   #:*current-server*))

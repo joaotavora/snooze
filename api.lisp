@@ -4,74 +4,6 @@
 ;;;
 (in-package #:snooze)
 
-(defclass snooze-server ()
-  ((route-packages
-    :initform (error "ROUTE-PACKAGES is a mandatory initarg")
-    :initarg :route-packages
-    :accessor route-packages
-    :documentation
-    "A list of packages to look for routes.
-     Specifically, packages containing generic functions whose names
-     match the names of REST resources. ")
-   (resource-name-regexp
-    :initform "/([^/.]+)" :initarg :resource-name-regexp
-    :accessor resource-name-regexp
-    :documentation
-    "A CL-PPCRE regular expression to match a REST resource's name.
-     When applied to an URI path should match a REST resource's
-     name. The remainder of the URI are the actual arguments for the
-     HTTP verbs that operate on that resource. The first regexp
-     capturing group, if any, is used for the resource's name.")
-   (fall-through-p
-    :initform nil :initarg :fall-through-p
-    :accessor fall-through-p
-    :documentation
-    "What to do if resource name extracted from URI doesn't match.
-     If NIL, issue a 404. Otherwise let the backend of the
-     SNOOZE-SERVER object handle the request")
-   (home-resource
-    :initform nil :initarg :home-resource
-    :accessor home-resource
-    :documentation
-    "Default \"home\" resource, served when the requested URL is \"bare\".
-     Value can be a string or a function designator.")
-   (backend
-    :reader backend
-    :documentation "The backend implementation object"))
-  (:documentation "HTTP server for handling RESTful routes"))
-
-(defun start (server)
-  "Start the Snooze REST server in SERVER"
-  (snooze-backend:start server (backend server))
-  server)
-
-(defun stop (server)
-  "Stop the Snooze REST server in SERVER"
-  (snooze-backend:stop server (backend server))
-  server)
-
-(defun started-p (server)
-  (snooze-backend:started-p server (backend server)))
-
-
-;;; Advanced
-;;; 
-(defgeneric convert-arguments (server resource actual-arguments)
-  (:method (server resource args)
-    (declare (ignore server resource))
-    (mapcar #'(lambda (arg)
-                (let ((probe (let ((*read-eval* nil))
-                                 (ignore-errors
-                                  (read-from-string arg)))))
-                  (if (numberp probe) probe arg)))
-            args))
-  (:documentation
-   "In the context of SERVER, make ACTUAL-ARGUMENTS fit RESOURCE.
-Should return a list of the same length as ACTUAL-ARGUMENTS, which is
-a list of strings, but where some strings have been converted to other
-types.  The default method tries to convert every arguments to a
-number."))
-
 
 ;;; Route definition
 ;;;
@@ -146,6 +78,8 @@ number."))
 
 ;;; Conditions
 ;;
+(defparameter *debug-on-conditions-p* nil)
+
 (define-condition http-condition (simple-condition)
   ((status-code :initarg :status-code :initform (error "Must supply a HTTP status code.")
                 :accessor status-code))
@@ -179,48 +113,29 @@ number."))
   (:default-initargs
    :format-control "Resource exists but client's \"Accept:\" header too restrictive"))
 
-(defgeneric explain-condition (server c)
-  (:documentation
-   "In the context of SERVER, explain exceptional condition C to client."))
-
-(defmethod explain-condition (server (c http-condition))
-  (declare (ignore server))
-  (format nil "~?" (simple-condition-format-control c)
-          (simple-condition-format-arguments c)))
-
-(defmethod explain-condition (server (c error))
-  (declare (ignore server))
-  "Something nasty happened")
-
-(defparameter *always-explain-conditions* nil
-  "If non-nil, always catch and explain HTTP-CONDITION conditions.
-This is even if the backend is configured not to catch errors.")
-
 
-;;; More stuff needed
+;;; Advanced
 ;;;
-(defun request-body ()
-  (snooze-backend:request-body (backend snooze-backend:*current-server*)))
+(defgeneric convert-arguments (resource actual-arguments)
+  (:method (resource actual-arguments)
+    (loop for (key value) in actual-arguments by #'cddr
+          for probe = (let ((*read-eval* nil))
+                        (ignore-errors
+                         (read-from-string value)))
+          collect key
+          collect (or probe value)))
+  (:documentation
+   "In the context of SERVER, make ACTUAL-ARGUMENTS fit RESOURCE.
+Should return a list of the same length as ACTUAL-ARGUMENTS, which is
+a list of strings, but where some strings have been converted to other
+types.  The default method tries to convert every arguments to a
+number."))
+
 
 
 ;;; Internal
 ;;; 
-(defmethod initialize-instance :after ((server snooze-server)
-                                       &rest args
-                                       &key
-                                         (backend :hunchentoot)
-                                         route-packages
-                                       &allow-other-keys)
-  (assert (listp route-packages) nil "ROUTE-PACKAGES must be a list")
-  (loop for package in route-packages
-        do (assert (find-package package) nil "~a in ROUTE-PACKAGES is not a package!"
-                   package))
-  (setf (slot-value server 'backend)
-        (apply #'make-instance (snooze-backend:backend-class backend) :server server
-               (loop for (k v) on args by #'cddr
-                     unless (member k '(:route-packages :resource-name-regexp
-                                        :fall-through-p :home-resource))
-                       collect k and collect v))))
+
 
 (defmethod print-object ((c http-condition) s)
   (format s "HTTP ~a: ~?" (status-code c)

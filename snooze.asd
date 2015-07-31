@@ -7,11 +7,7 @@
   :components ((:file "package")
                (:file "mime-types")
                (:file "common")
-               (:file "backend")
-               (:file "api")
-               (:file "utils")
-               
-               (:file "snooze-hunchentoot")))
+               (:file "api")))
 
 (asdf:defsystem :snooze-tests
   :depends-on (#:snooze #:fiasco #:drakma #:babel)
