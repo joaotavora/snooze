@@ -2,9 +2,9 @@
   (:use #:cl #:snooze)
   (:import-from  #:snooze-common
                  #:verb-spec-or-lose
-                 #:content-type-spec-or-lose-1)
-  (:import-from #:snooze-utils
-                #:parse-uri))
+                 #:find-content-class
+                 #:content-type-spec-or-lose-1
+                 #:parse-resource))
 (in-package :snooze-tests)
 
 (deftest parse-verbs ()
@@ -20,11 +20,11 @@
                   (content-type-spec-or-lose-1 ,x))))
     (is (equal (cts '(foo t)) '(FOO SNOOZE-TYPES:CONTENT)))
     (is (equal (cts '(foo "*/*")) '(FOO SNOOZE-TYPES:CONTENT)))
-    (is (equal (cts :text/html) '(TYPE SNOOZE-TYPES:TEXT/HTML)))
-    (is (equal (cts "text/html") '(TYPE SNOOZE-TYPES:TEXT/HTML)))
-    (is (equal (cts '"text/html") '(TYPE SNOOZE-TYPES:TEXT/HTML)))
-    (is (equal (cts :text/*) '(TYPE SNOOZE-TYPES:TEXT)))
-    (is (equal (cts "text/*") '(TYPE SNOOZE-TYPES:TEXT)))
+    (is (equal (cts :text/html) '(SNOOZE-TYPES:TYPE SNOOZE-TYPES:TEXT/HTML)))
+    (is (equal (cts "text/html") '(SNOOZE-TYPES:TYPE SNOOZE-TYPES:TEXT/HTML)))
+    (is (equal (cts '"text/html") '(SNOOZE-TYPES:TYPE SNOOZE-TYPES:TEXT/HTML)))
+    (is (equal (cts :text/*) '(SNOOZE-TYPES:TYPE SNOOZE-TYPES:TEXT)))
+    (is (equal (cts "text/*") '(SNOOZE-TYPES:TYPE SNOOZE-TYPES:TEXT)))
     (is (equal (cts 'foo) '(FOO SNOOZE-TYPES:CONTENT)))
     (is (equal (cts '(foo "text/html")) '(FOO SNOOZE-TYPES:TEXT/HTML)))
 
@@ -44,74 +44,97 @@
 
 (defresource yo (verb content-type))
 
+(defresource yo.snooze (verb content-type))
+
 (in-package :snooze-tests)
 
-(defun parse-uri-1 (uri server)
-  (let* ((match (position #\? uri))
-         (script-name (if match (subseq uri 0 match) uri))
-         (query-string (and match (subseq uri (1+ match)))))
-    (parse-uri script-name query-string server)))
+(defun parse-uri-for-tests (uri)
+  (multiple-value-bind (resource content-types moreuri)
+      (parse-resource uri)
+    (multiple-value-bind (plain-args keyword-args)
+        (uri-to-arguments resource moreuri)
+      (values resource
+              plain-args
+              keyword-args
+              content-types))))
 
-(deftest test-parse-uri (&optional (server
-                                    (make-instance 'snooze-server
-                                                   :route-packages '(:snooze-parse-uri-tests))))
-  (multiple-value-bind (resource args)
-      (parse-uri-1 "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal" server)
-    (is (equal args
-               '("ble" "bli" :FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
+(deftest test-parse-uri ()
+  (multiple-value-bind (resource pargs kwargs)
+      (parse-uri-for-tests "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal")
+    (is (equal pargs '(:ble :bli)))
+    (is (equal kwargs '((:FOO            . :fonix)
+                        (:BAR            . :fotrix)
+                        (SNOOZE:FRAGMENT . :coisoetal))))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
   
-  (multiple-value-bind (resource args)
-      (parse-uri-1 "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
-                   (make-instance 'snooze-server
-                                  :route-packages (route-packages server)
-                                  :resource-name-regexp "/ignored/([^/]+)/"))
-    (is (equal args
-               '("ble" "bli" :FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
+  (multiple-value-bind (resource pargs kwargs)
+      (let ((snooze:*resource-name-function*
+              (lambda (uri)
+                (default-resource-name (subseq uri (mismatch "/ignored" uri))))))
+        (parse-uri-for-tests "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"))
+    (is (equal pargs '(:ble :bli)))
+    (is (equal kwargs '((:FOO            . :fonix)
+                        (:BAR            . :fotrix)
+                        (SNOOZE:FRAGMENT . :coisoetal))))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
   
-  (multiple-value-bind (resource args)
-      (parse-uri-1 "/bla/ble/bli" server)
-    (is (equal args '("ble" "bli")))
+  (multiple-value-bind (resource pargs)
+      (parse-uri-for-tests "/bla/ble/bli")
+    (is (equal pargs '(:ble :bli)))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
 
   ;; content-types in the extension
   ;;
-  (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo?foo=ok" server)
-    (is (equal args '(:foo "ok")))
+  (multiple-value-bind (resource pargs kwargs content-types)
+      (parse-uri-for-tests "/yo?foo=ok")
+    (declare (ignore pargs))
+    (is (equal kwargs '((:foo . :ok))))
     (is (eq resource #'snooze-parse-uri-tests:yo))
-    (is (eq content-type nil)))
+    (is (null content-types)))
   
-  (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo.css?foo=ok" server)
-    (is (equal args '(:foo "ok")))
+  (multiple-value-bind (resource pargs kwargs content-types)
+      (parse-uri-for-tests "/yo.css?foo=ok")
+    (is (null pargs))
+    (is (equal kwargs '((:foo . :ok))))
     (is (eq resource #'snooze-parse-uri-tests:yo))
-    (is (eq content-type (find-class 'snooze-types:text/css))))
+    (is (member (find-class 'snooze-types:text/css) content-types)))
 
-  (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo/1.css?foo=ok" server)
-    (is (equal args '("1" :foo "ok")))
+  (multiple-value-bind (resource pargs kwargs content-types)
+      (parse-uri-for-tests "/yo/1.css?foo=ok")
+    (is (equal pargs '(1)))
+    (is (equal kwargs '((:foo . :ok))))
     (is (eq resource #'snooze-parse-uri-tests:yo))
-    (is (eq content-type (find-class 'snooze-types:text/css))))
+    (member (find-class 'snooze-types:text/css) content-types))
 
-  (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo.unknownextension?foo=ok" server)
-    (is (equal args '(:foo "ok")))
+  (multiple-value-bind (resource pargs kwargs content-types)
+      (let ((snooze:*uri-content-types-function* nil))
+        (parse-uri-for-tests "/yo/1.css?foo=ok"))
+    (is (equal pargs '(:1.css)))
+    (is (equal kwargs '((:foo . :ok))))
     (is (eq resource #'snooze-parse-uri-tests:yo))
-    (is (not content-type)))
+    (member (find-class 'snooze-types:text/css) content-types))
 
-  (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo/arg.unknownextension?foo=ok" server)
-    (is (equal args '("arg.unknownextension" :foo "ok")))
+  (multiple-value-bind (resource pargs kwargs content-types)
+      (parse-uri-for-tests "/yo.snooze?foo=ok")
+    (is (null pargs))
+    (is (equal kwargs '((:foo . :ok))))
+    (is (eq resource #'snooze-parse-uri-tests::yo.snooze))
+    (is (null content-types)))
+
+  (multiple-value-bind (resource pargs kwargs content-type)
+      (parse-uri-for-tests "/yo/arg.unknownextension?foo=ok")
+    (is (equal pargs '(:arg.unknownextension)))
+    (is (equal kwargs '((:foo . :ok))))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (not content-type))))
 
 
-;;; Some tests from the READEM.md
+;;; Some tests from the README.md
 ;;;
-(cl:defpackage :snooze-demo (:use :cl))
-(in-package :snooze-demo)
+(defvar *mock-http-payload* "fornix")
+
+(cl:defpackage :snooze-tests-demo (:use :cl :snooze))
+(in-package :snooze-tests-demo)
 
 (defparameter *todo-counter* 0)
 
@@ -134,7 +157,7 @@
   (let ((todo (find id *todos* :key #'todo-id)))
     (if todo
         (todo-task todo)
-        (error 'snooze:404 :format-control "No such todo!"))))
+        (http-condition 404 "No such TODO!"))))
 
 (snooze:defroute todo (:get "text/css" id &key maybe)
   (declare (ignore maybe))
@@ -145,9 +168,17 @@
   (let ((todo (find id *todos* :key #'todo-id)))
     (if todo
         (setf (todo-task todo)
-              (babel:octets-to-string
-               (snooze:request-body)))
-        (error 'snooze:404 :format-control "No such todo!"))))
+              snooze-tests::*mock-http-payload*)
+        (http-condition 404 "No such TODO!"))))
+
+(defmethod todo ((snooze-verbs:http-verb snooze-verbs:put)
+                        (content snooze-types:text/plain) id &key
+                        maybe)
+         (declare (ignore maybe))
+         (let ((todo (find id *todos* :key #'todo-id)))
+           (if todo
+               (setf (todo-task todo) snooze-tests::*mock-http-payload*)
+             (http-condition 404 "No such TODO!"))))
 
 (snooze:defresource todos (method content))
 
@@ -158,17 +189,17 @@
   (format nil "{NOTREALLYJSON~{~a~^~%~}NOTREALLYJSON}"
           (mapcar #'todo-task *todos*)))
 
-(in-package :snooze-tests)
+(defmethod snooze:explain-condition ((c http-condition) (resource (eql #'todo)) (ct snooze-types:application/json))
+  "{Oooops-in-JSON}")
 
-(defvar *use-this-server* nil)
-(defvar *actual-port*)
+(in-package :snooze-tests)
 
 (defmacro with-request ((uri &rest morekeys &key &allow-other-keys) args &body body)
   (let ((result-sym (gensym)))
     `(let* ((,result-sym
               (multiple-value-list
-               (drakma:http-request
-                (format nil "http://localhost:~a~a" *actual-port* ,uri)
+               (snooze:handle-request
+                ,uri
                 ,@morekeys)))
             ,@(loop for arg in args
                     for i from 0
@@ -176,131 +207,111 @@
                       collect `(,arg (nth ,i ,result-sym))))
        ,@body)))
 
-(defun call-with-server-setup (use-this-server packages fn)
-  (let* ((server (or use-this-server
-                     (make-instance 'snooze:snooze-server :port 0
-                                    :route-packages nil)))
-         (saved-catch-errors hunchentoot:*catch-errors-p*)
-         (saved-packages (snooze:route-packages server)))
-    (unwind-protect
-         (progn
-           (setq hunchentoot:*catch-errors-p* t)
-           (setf (snooze::route-packages server) packages)
-           (snooze:start server)
-           (let ((*actual-port*
-                   #+(or allegro sbcl)
-                   (usocket:get-local-port
-                    (hunchentoot::acceptor-listen-socket
-                     (snooze::backend server)))))
-             (funcall fn)))
-      (setf (snooze::route-packages server) saved-packages)
-      (setq hunchentoot:*catch-errors-p* saved-catch-errors)
-      (unless use-this-server
-        (snooze:stop server)))))
-
-(defmacro with-server-setup
-    ((&key use-this-server
-           (packages ''(:snooze-demo)))
-     &body body)
-  `(call-with-server-setup ,use-this-server ,packages #'(lambda () ,@body)))
-
-(deftest test-some-routes (&optional (use-this-server *use-this-server*))
-  (with-server-setup (:use-this-server use-this-server
-                      :packages '(:snooze-demo))
-    (with-request ("/todo/1") (nil code) (is (= 200 code)))
-    (with-request ("/todo/10") (nil code) (is (= 404 code)))
-    ;; Test keywords args
-    ;; 
-    (with-request ("/todo/1?maybe=bla") (nil code) (is (= 200 code)))
-    (with-request ("/todo/1?nokeyword=bla") (nil code) (is (= 404 code)))
-    ;; Test "Accept:" header
-    ;; 
-    (with-request ("/todo/1"
-                   :accept "application/json") (nil code) (is (= 404 code)))
-    (with-request ("/todo/1"
-                   :accept "application/*") (nil code) (is (= 404 code)))
-    (with-request ("/todo/1"
-                   :accept "text/*") (nil code) (is (= 200 code)))
-    (with-request ("/todo/1"
-                   :accept "text/plain") (nil code) (is (= 200 code)))
-    (with-request ("/todo/1"
-                   :accept "application/json; q=0.8,text/plain; garbage") (nil code) (is (= 200 code)))
-    (with-request ("/todo/1"
-                   :accept "application/json;text/plain") (nil code) (is (= 404 code)))
-    (with-request ("/todos"
-                   :accept "application/json;text/plain") (answer code headers)
+(deftest test-some-routes ()
+  (with-request ("/todo/1") (code) (is (= 200 code)))
+  (with-request ("/todo/10") (code) (is (= 404 code)))
+  ;; Test keywords args
+  ;; 
+  (with-request ("/todo/1?maybe=bla") (code) (is (= 200 code)))
+  (with-request ("/todo/1?nokeyword=bla") (code) (is (= 400 code)))
+  ;; Test "Accept:" header
+  ;; 
+  (with-request ("/todo/1"
+                 :accept "application/json") (code) (is (= 406 code)))
+  (with-request ("/todo/1"
+                 :accept "application/*") (code) (is (= 406 code)))
+  (with-request ("/todo/1"
+                 :accept "text/*") (code) (is (= 200 code)))
+  (with-request ("/todo/1"
+                 :accept "text/plain") (code) (is (= 200 code)))
+  (with-request ("/todo/1"
+                 :accept "application/json; q=0.8,text/plain; garbage") (code) (is (= 200 code)))
+  (with-request ("/todo/1"
+                 :accept "application/json;text/plain") (code) (is (= 406 code)))
+  (with-request ("/todos" 
+                 :accept "application/json;text/plain") (code payload ct)
+    (is (= 200 code))
+    (is (cl-ppcre:scan "NOTREALLYJSON" payload))
+    (is (equal ct "application/json")))
+  (with-request ("/todos"
+                 :accept "application/*;text/plain") (code payload ct)
+    (is (= 200 code))
+    (is (cl-ppcre:scan "NOTREALLYJSON" payload))
+    (is (equal ct "application/json")))
+  (with-request ("/todos"
+                 :accept "text/plain;application/json") (code payload ct)
+    (is (= 200 code))
+    (is (stringp payload))
+    (is (equal ct "text/plain")))
+  (let ((*mock-http-payload* (symbol-name (gensym))))
+    (with-request ("/todo/3"
+                   :method :put
+                   :content-type "text/plain") (code)
+      (is (= 200 code)))
+    (with-request ("/todo/3"
+                   :method :get
+                   :accept "text/plain") (code payload)
       (is (= 200 code))
-      (is (not (stringp answer)))
-      (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
-      (is (string= (cdr (find :content-type headers :key #'car))
-                   "APPLICATION/JSON")))
-    (with-request ("/todos"
-                   :accept "application/*;text/plain") (answer code headers)
-      (is (= 200 code))
-      (is (not (stringp answer)))
-      (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
-      (is (string= (cdr (find :content-type headers :key #'car))
-                   "APPLICATION/JSON")))
-    (with-request ("/todos"
-                   :accept "text/plain;application/json") (answer code)
-      (is (= 200 code))
-      (is (stringp answer)))
-    (let ((random (symbol-name (gensym))))
-      (with-request ("/todo/3"
-                     :method :put
-                     :content random
-                     :content-type "text/plain") (nil code)
-        (is (= 200 code)))
-      (with-request ("/todo/3"
-                     :method :get
-                     :accept "text/plain") (answer code)
-        (is (= 200 code))
-        (is (string= answer random))))
-    ;; content-type in extension
-    ;; 
-    (with-request ("/todo/1.css") (answer code)
-      (is (= 200 code))
-      (is (search "CSS for TODO item 1" answer)))))
+      (is (string= payload *mock-http-payload*))))
+  ;; content-type in extension
+  ;; 
+  (with-request ("/todo/1.css") (code payload)
+    (is (= 200 code))
+    (is (search "CSS for TODO item 1" payload))))
 
 
-;;; Genurl section
+;;; Genpath section
 ;;; 
-(fiasco:define-test-package :snooze-demo-fancy
-  (:use :cl :snooze))
-(in-package :snooze-demo-fancy)
+(defresource book-resource (verb content-type file user &optional
+                                 (coiso :genpath-default-coiso)
+                                 (tal :genpath-default-tal)
+                                 &key fornix (yo :genpath-default-yobla))
+  (:genpath book-resource-path)
+  (:route (:get "text/plain" file user &optional (coiso :default-coiso) (tal :default-tal) &key fornix (yo :yobla))
+          (write-to-string (list file user coiso tal fornix yo))))
 
-(defresource book (verb content-type file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
-  (:genurl book-url)
-  (:route :around (:get "text/plain" file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
-          (declare (ignore file user coiso e tal fornix yo))))
+(defresource manuscript-resource (verb content-type file user &key)
+  (:genpath manuscript-resource-path)
+  (:route (:get "text/plain" file user &key fornix (yo :default-yo))
+          (write-to-string (list file user fornix yo))))
 
-(defresource papyrus (verb content-type file user &key protocol host)
-  (:genurl papyrus-url))
+(deftest path-generation ()
+  (is (string= (book-resource-path :yo :yeah nil nil)
+               "/book-resource/yo/yeah?yo=genpath-default-yobla"))
+  (signals error (book-resource-path "yo" "yeah" nil "AHA"))
+  (is (string= (book-resource-path :yo :yeah "MixedCase" nil)
+               "/book-resource/yo/yeah/%22MixedCase%22?yo=genpath-default-yobla"))
+  (is (string= (book-resource-path :yo :yeah "OK" nil :yo :mama :fornix nil)
+               "/book-resource/yo/yeah/%22OK%22?yo=mama"))
+  (is (string= (book-resource-path :yo :yeah)
+               "/book-resource/yo/yeah/genpath-default-coiso/genpath-default-tal?yo=genpath-default-yobla"))
+  (is (string= (book-resource-path "yo with a space" :yeah)
+               "/book-resource/%22yo%20with%20a%20space%22/yeah/genpath-default-coiso/genpath-default-tal?yo=genpath-default-yobla")))
 
-(defresource testament (verb content-type &optional a &rest anything)
-  (:genurl testament-url))
+(defresource joaot (verb ct one two three &key quatro)
+  (:genpath joaot-path))
 
-(deftest genurl-madness ()
-  (is (string= (book-url "yo" "yeah" nil nil :protocol "bla" :host "ble")
-               "bla://ble/book/yo/yeah?yo=yobla"))
-  (signals error (book-url "yo" "yeah" nil "AHA" :protocol "bla" :host "ble"))
-  (is (string= (book-url "yo" "yeah" "OK" nil :protocol "bla" :host "ble")
-               "bla://ble/book/yo/yeah/OK?yo=yobla"))
-  (is (string= (book-url "yo" "yeah" "OK" nil :protocol "bla" :host "ble" :yo "mama" :fornix nil)
-               "bla://ble/book/yo/yeah/OK?yo=mama"))
-  (is (string= (book-url "yo" "yeah") "book/yo/yeah/coiso/bla?yo=yobla"))
-  
-  ;; This one remembered to have keyword args named "protocol" and "host"
-  ;;
-  (is (string= (papyrus-url "a" "b" :protocol "shit"
-                            'snooze-syms:protocol "https" 'snooze-syms:host "localhost")
-               "https://localhost/papyrus/a/b?protocol=shit"))
-  (is (string= (papyrus-url "a" "b" :protocol "shit"
-                                    :protocol "https" 'snooze-syms:host "localhost")
-               "http://localhost/papyrus/a/b?protocol=shit"))
-  (is (string= (papyrus-url "a" "b" :protocol "https" 'snooze-syms:host "localhost")
-               "http://localhost/papyrus/a/b?protocol=https"))
-  (signals error (papyrus-url "a" "b" :protocol "https" 'snooze-syms:protocol :ssh)))
+(deftest path-parse-back ()
+  (with-request ((book-resource-path :yo :yeah)) (code payload)
+    (is (= 200 code))
+    (is (equal (read-from-string payload)
+               '(:yo :yeah :genpath-default-coiso :genpath-default-tal nil :genpath-default-yobla))))
+  (with-request ((manuscript-resource-path :yo :yeah)) (code payload)
+    (is (= 200 code))
+    (is (equal (read-from-string payload)
+               '(:yo :yeah nil :default-yo))))
+  (with-request ((manuscript-resource-path :yo 'read-char)) (code payload)
+    (is (= 200 code))
+    (is (equal (read-from-string payload)
+               '(:yo cl:read-char nil :default-yo))))
+  (let ((uri "/joaot/1/2/3?quatro=4"))
+    (is (string= (multiple-value-bind (resource content-types relative-uri)
+                     (parse-resource uri)
+                   (declare (ignore content-types))
+                   (multiple-value-bind (plain-args keyword-args)
+                       (uri-to-arguments resource relative-uri)
+                     (arguments-to-uri resource plain-args keyword-args)))
+                 uri))))
 
 
 
