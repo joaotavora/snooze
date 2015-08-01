@@ -1,5 +1,5 @@
 (asdf:defsystem :snooze
-  :depends-on (#:alexandria #:hunchentoot #:cl-ppcre #:closer-mop)
+  :depends-on (#:alexandria #:cl-ppcre #:closer-mop #:puri)
   :author "capitaomorte <https://github.com/capitaomorte>"
   :license "GPL"
   :description "Snooze is a web framework setting up REST routes using CLOS."

@@ -36,8 +36,6 @@
 ;;; primary CLOS methods) are now eligible. We try many routes in
 ;;; order (according to that range) until we find one that matches.
 ;;;
-;;; See PREFILTER-ACCEPTS-HEADER in util.lisp.
-;;;
 ;;; [1]: http://stackoverflow.com/questions/978061/http-get-with-request-body
 ;;;
 
@@ -133,10 +131,6 @@
 (defmethod initialize-instance :after ((gf resource-generic-function) &rest args)
   (declare (ignore args))
   (pushnew gf *all-resources*))
-
-(snooze:defroute book (verb type id))
-
-(unintern 'book)
 
 (defun probe-class-sym (sym)
   "Like CL:FIND-CLASS but don't error and return SYM or nil"
@@ -330,36 +324,29 @@
       (ensure-atom (first thing))
       thing))
 
-(defun parse-args-in-uri (args-string query-string)
-  (let* ((query-and-fragment (scan-to-strings* "(?:([^#]+))?(?:#(.*))?$"
-                                                      query-string))
-         (required-args (cl-ppcre:split "/" (subseq args-string (mismatch "/" args-string))))
-         (keyword-args (loop for maybe-pair in (cl-ppcre:split "[;&]" (first query-and-fragment))
+(defun parse-args-in-uri (args-string query fragment)
+  (let* ((plain-args (cl-ppcre:split "/" (subseq args-string (mismatch "/" args-string))))
+         (keyword-args (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
                              for (key-name value) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
                              when (and key-name value)
                                append (list (intern (string-upcase key-name) :keyword)
-                                            value)))
-         (fragment (second query-and-fragment)))
-    (append required-args
-            keyword-args
-            (when fragment
-              (list 'snooze:fragment fragment)))))
+                                            value))))
+    (values plain-args
+            (append keyword-args
+                    (when fragment
+                      (list 'snooze:fragment fragment))))))
 
-(defun find-resource-by-name (name server)
-  (loop for package in (snooze:route-packages server)
-        for sym = (find-symbol (string-upcase name) package)
-          thereis (and sym
-                       (find-resource sym))))
-
-(defun parse-uri (script-name query-string
-                  &key
-                    (resource-name-regexp "/([^/.]+)")
-                    (resources *all-resources*)
-                    (home-resource nil))
+(defun parse-resource (uri
+                       &key
+                         (resource-name-regexp "/([^/.]+)")
+                         (resources *all-resources*)
+                         (home-resource nil))
   "Parse SCRIPT-NAME and QUERY-STRING . Return values RESOURCE ARGS CONTENT-TYPE."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
   ;;
-  (let* ((match (multiple-value-list (cl-ppcre:scan resource-name-regexp
+  (let* ((uri (puri:parse-uri uri))
+         (script-name (puri:uri-path uri))
+         (match (multiple-value-list (cl-ppcre:scan resource-name-regexp
                                                     script-name)))
          (resource-name
            (and (first match)
@@ -383,42 +370,31 @@
          (content-type-class (and extension
                                   (find-content-class
                                    (gethash extension *mime-type-hash*))))
-         (actual-arguments (parse-args-in-uri (if content-type-class
-                                                  args-string
-                                                  (if (zerop (length args-string))
-                                                      ""
-                                                      script-minus-resource))
-                                              query-string)))
+         (plain-and-keyword-args (multiple-value-list
+                                  (parse-args-in-uri (if content-type-class
+                                                         args-string
+                                                         (if (zerop (length args-string))
+                                                             ""
+                                                             script-minus-resource))
+                                                     (puri:uri-query uri)
+                                                     (puri:uri-fragment uri)))))
     (values resource
-            actual-arguments
+            (first plain-and-keyword-args)
+            (second plain-and-keyword-args)
             content-type-class)))
 
-(defun prefilter-accepts-header (string resource)
-  "Parse STRING to list SNOOZE-TYPES:CONTENT classes for RESOURCE"
-  (let ((resource-accepted-classes
-          (mapcar #'second (mapcar #'closer-mop:method-specializers
-                                   (closer-mop:generic-function-methods resource)))))
-    (labels ((useful-subclasses-of (class)
-               (when (some (lambda (rac)
-                             (or (subtypep (class-name class) (class-name rac))
-                                 (subtypep (class-name rac) (class-name class))))
-                           resource-accepted-classes)
-                 (let ((subclasses (closer-mop:class-direct-subclasses class)))
-                   (if subclasses
-                       (mapcan #'useful-subclasses-of (closer-mop:class-direct-subclasses class))
-                       (list class))))))
-      (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
-            for media-range = (first (scan-to-strings* "([^;]*)" media-range-and-params))
-            for class = (find-content-class media-range)
-            when class
-              append (useful-subclasses-of class)))))
+(defun content-classes-in-accept-string (string)
+  (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
+        for media-range = (first (scan-to-strings* "([^;]*)" media-range-and-params))
+        for class = (find-content-class media-range)
+        when class collect it))
 
 (defun arglist-compatible-p (resource args)
   (handler-case
-      (apply `(lambda ,(closer-mop:generic-function-lambda-list
-                        resource)
-                t)
-               `(dummy dummy ,@args))
+      (eval `(apply (lambda ,(closer-mop:generic-function-lambda-list
+                              resource)
+                      t)
+                    (list t t ,@args)))
     (error () nil)))
 
 (defun parse-content-type-header (string)
@@ -433,90 +409,11 @@
     ;; FIXME: perhaps use singletons here
     (make-instance class)))
 
-(defun handle-request (verb
-                       script-name
-                       &key
-                         (query-string)
-                         (request-accept)
-                         (request-content-type)
-                         (resources *all-resources*)
-                         home-resource
-                         resource-name-regexp
-                         (debug-on-conditions-p *debug-on-conditions-p*))
-  (block retval-block
-    (handler-bind ((snooze:http-condition
-                     (lambda (c)
-                       (unless debug-on-conditions-p
-                         (return-from retval-block
-                           (values (status-code c)
-                                   (explain-condition c)
-                                   (find-content-class "text/plain")
+(defun gf-primary-method-specializer (gf args ct-arg-pos)
+  "Compute proper content-type for calling GF with ARGS"
+  (let ((applicable (compute-applicable-methods gf args)))
+    (when applicable
+      (nth ct-arg-pos (closer-mop:method-specializers (first applicable))))))
 
-                                   ))))))
-      (multiple-value-bind (resource args content-class-in-uri)
-          (parse-uri script-name query-string
-                     :resource-name-regexp resource-name-regexp
-                     :resources resources
-                     :home-resource home-resource)
-        (let* ((verb (snooze-utils:find-verb-or-lose verb))
-               (converted-arguments (snooze:convert-arguments resource args)))
-          (cond ((not resource)
-                 (error 'snooze:no-such-resource
-                        :resource nil
-                        :verb verb
-                        :format-control
-                        "So sorry, but that URI doesn't match any REST resources"))
-                ((not (snooze-utils:arglist-compatible-p resource converted-arguments))
-                 (error 'snooze:invalid-resource-arguments
-                        :format-control
-                        "Too many, too few, or unsupported query arguments for REST resource ~a"
-                        :format-arguments
-                        (list resource)))
-                (t
-                 (etypecase verb
-                   ;; For the Accept: header
-                   (snooze-verbs:sending-verb
-                    (let* ((prefiltered-accepted-ct-classes
-                             (if content-class-in-uri
-                                 (list content-class-in-uri)
-                                 (snooze-utils:prefilter-accepts-header
-                                  request-accept
-                                  resource)))
-                           (retval))
-                      (loop do (unless prefiltered-accepted-ct-classes
-                                 (error 'snooze:no-matching-content-types
-                                        :accepted-classes prefiltered-accepted-ct-classes))
-                              thereis
-                              (block try-again
-                                (handler-bind ((snooze:no-such-route
-                                                 #'(lambda (c)
-                                                     (declare (ignore c))
-                                                     (return-from try-again nil))))
-                                  ;; autosetting the reply's content-type
-                                  ;; before the method call gives the
-                                  ;; route a chance to override it.
-                                  ;;
-                                  (let ((content-type (pop prefiltered-accepted-ct-classes)))
-                                    (setf (hunchentoot:content-type*)
-                                          (string (class-name content-type)))
-                                    (setq retval
-                                          (apply resource
-                                                 verb
-                                                 ;; FIXME: maybe use singletons here
-                                                 (make-instance (class-name content-type))
-                                                 converted-arguments))
-                                    t))))
-                      retval))
-                   (snooze-verbs:receiving-verb
-                    (let ((request-content-class
-                            (or content-class-in-uri
-                                (snooze-utils:parse-content-type-header request-content-type))))
-                    (apply resource
-                           verb
-                           ;; FIXME: no content class in the client's request,
-                           ;; 
-                           (make-instance (if request-content-class
-                                              (class-name request-content-class)
-                                              'snooze-types:content) )
-                           converted-arguments)))))))))))
+
 

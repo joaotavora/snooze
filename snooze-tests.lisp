@@ -2,9 +2,8 @@
   (:use #:cl #:snooze)
   (:import-from  #:snooze-common
                  #:verb-spec-or-lose
-                 #:content-type-spec-or-lose-1)
-  (:import-from #:snooze-utils
-                #:parse-uri))
+                 #:content-type-spec-or-lose-1
+                 #:parse-resource))
 (in-package :snooze-tests)
 
 (deftest parse-verbs ()
@@ -46,74 +45,70 @@
 
 (in-package :snooze-tests)
 
-(defun parse-uri-1 (uri server)
-  (let* ((match (position #\? uri))
-         (script-name (if match (subseq uri 0 match) uri))
-         (query-string (and match (subseq uri (1+ match)))))
-    (parse-uri script-name query-string server)))
-
-(deftest test-parse-uri (&optional (server
-                                    (make-instance 'snooze-server
-                                                   :route-packages '(:snooze-parse-uri-tests))))
-  (multiple-value-bind (resource args)
-      (parse-uri-1 "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal" server)
-    (is (equal args
-               '("ble" "bli" :FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
+(deftest test-parse-uri ()
+  (multiple-value-bind (resource pargs kwargs)
+      (parse-resource "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal")
+    (is (equal pargs '("ble" "bli")))
+    (is (equal kwargs '(:FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
   
-  (multiple-value-bind (resource args)
-      (parse-uri-1 "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
-                   (make-instance 'snooze-server
-                                  :route-packages (route-packages server)
-                                  :resource-name-regexp "/ignored/([^/]+)/"))
-    (is (equal args
-               '("ble" "bli" :FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
+  (multiple-value-bind (resource pargs kwargs)
+      (parse-resource "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"
+                   :resource-name-regexp "/ignored/([^/]+)/")
+    (is (equal pargs '("ble" "bli")))
+    (is (equal kwargs '(:FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
   
-  (multiple-value-bind (resource args)
-      (parse-uri-1 "/bla/ble/bli" server)
-    (is (equal args '("ble" "bli")))
+  (multiple-value-bind (resource pargs)
+      (parse-resource "/bla/ble/bli")
+    (is (equal pargs '("ble" "bli")))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
 
   ;; content-types in the extension
   ;;
-  (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo?foo=ok" server)
-    (is (equal args '(:foo "ok")))
+  (multiple-value-bind (resource pargs kwargs content-type)
+      (parse-resource "/yo?foo=ok")
+    (declare (ignore pargs))
+    (is (equal kwargs '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (eq content-type nil)))
   
-  (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo.css?foo=ok" server)
-    (is (equal args '(:foo "ok")))
+  (multiple-value-bind (resource pargs kwargs content-type)
+      (parse-resource "/yo.css?foo=ok")
+    (declare (ignore pargs))
+    (is (equal kwargs '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (eq content-type (find-class 'snooze-types:text/css))))
 
-  (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo/1.css?foo=ok" server)
-    (is (equal args '("1" :foo "ok")))
+  (multiple-value-bind (resource pargs kwargs content-type)
+      (parse-resource "/yo/1.css?foo=ok")
+    (is (equal pargs '("1")))
+    (is (equal kwargs '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (eq content-type (find-class 'snooze-types:text/css))))
 
-  (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo.unknownextension?foo=ok" server)
-    (is (equal args '(:foo "ok")))
+  (multiple-value-bind (resource pargs kwargs content-type)
+      (parse-resource "/yo.unknownextension?foo=ok")
+    (declare (ignore pargs))
+    (is (equal kwargs '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (not content-type)))
 
-  (multiple-value-bind (resource args content-type)
-      (parse-uri-1 "/yo/arg.unknownextension?foo=ok" server)
-    (is (equal args '("arg.unknownextension" :foo "ok")))
+  (multiple-value-bind (resource pargs kwargs content-type)
+      (parse-resource "/yo/arg.unknownextension?foo=ok")
+    (is (equal pargs '("arg.unknownextension")))
+    (is (equal kwargs '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (not content-type))))
 
 
-;;; Some tests from the READEM.md
+;;; Some tests from the README.md
 ;;;
 (cl:defpackage :snooze-demo (:use :cl))
 (in-package :snooze-demo)
 
 (defparameter *todo-counter* 0)
+(defvar *mock-http-payload*)
 
 (defclass todo ()
   ((id :initform (incf *todo-counter*) :accessor todo-id)
@@ -146,7 +141,7 @@
     (if todo
         (setf (todo-task todo)
               (babel:octets-to-string
-               (snooze:request-body)))
+               *mock-http-payload*))
         (error 'snooze:404 :format-control "No such todo!"))))
 
 (snooze:defresource todos (method content))
@@ -160,15 +155,12 @@
 
 (in-package :snooze-tests)
 
-(defvar *use-this-server* nil)
-(defvar *actual-port*)
-
 (defmacro with-request ((uri &rest morekeys &key &allow-other-keys) args &body body)
   (let ((result-sym (gensym)))
     `(let* ((,result-sym
               (multiple-value-list
-               (drakma:http-request
-                (format nil "http://localhost:~a~a" *actual-port* ,uri)
+               (snooze:handle-request
+                ,uri
                 ,@morekeys)))
             ,@(loop for arg in args
                     for i from 0
@@ -176,91 +168,61 @@
                       collect `(,arg (nth ,i ,result-sym))))
        ,@body)))
 
-(defun call-with-server-setup (use-this-server packages fn)
-  (let* ((server (or use-this-server
-                     (make-instance 'snooze:snooze-server :port 0
-                                    :route-packages nil)))
-         (saved-catch-errors hunchentoot:*catch-errors-p*)
-         (saved-packages (snooze:route-packages server)))
-    (unwind-protect
-         (progn
-           (setq hunchentoot:*catch-errors-p* t)
-           (setf (snooze::route-packages server) packages)
-           (snooze:start server)
-           (let ((*actual-port*
-                   #+(or allegro sbcl)
-                   (usocket:get-local-port
-                    (hunchentoot::acceptor-listen-socket
-                     (snooze::backend server)))))
-             (funcall fn)))
-      (setf (snooze::route-packages server) saved-packages)
-      (setq hunchentoot:*catch-errors-p* saved-catch-errors)
-      (unless use-this-server
-        (snooze:stop server)))))
-
-(defmacro with-server-setup
-    ((&key use-this-server
-           (packages ''(:snooze-demo)))
-     &body body)
-  `(call-with-server-setup ,use-this-server ,packages #'(lambda () ,@body)))
-
 (deftest test-some-routes (&optional (use-this-server *use-this-server*))
-  (with-server-setup (:use-this-server use-this-server
-                      :packages '(:snooze-demo))
-    (with-request ("/todo/1") (nil code) (is (= 200 code)))
-    (with-request ("/todo/10") (nil code) (is (= 404 code)))
-    ;; Test keywords args
-    ;; 
-    (with-request ("/todo/1?maybe=bla") (nil code) (is (= 200 code)))
-    (with-request ("/todo/1?nokeyword=bla") (nil code) (is (= 404 code)))
-    ;; Test "Accept:" header
-    ;; 
-    (with-request ("/todo/1"
-                   :accept "application/json") (nil code) (is (= 404 code)))
-    (with-request ("/todo/1"
-                   :accept "application/*") (nil code) (is (= 404 code)))
-    (with-request ("/todo/1"
-                   :accept "text/*") (nil code) (is (= 200 code)))
-    (with-request ("/todo/1"
-                   :accept "text/plain") (nil code) (is (= 200 code)))
-    (with-request ("/todo/1"
-                   :accept "application/json; q=0.8,text/plain; garbage") (nil code) (is (= 200 code)))
-    (with-request ("/todo/1"
-                   :accept "application/json;text/plain") (nil code) (is (= 404 code)))
-    (with-request ("/todos"
-                   :accept "application/json;text/plain") (answer code headers)
+  (with-request ("/todo/1") (code) (is (= 200 code)))
+  (with-request ("/todo/10") (code) (is (= 404 code)))
+  ;; Test keywords args
+  ;; 
+  (with-request ("/todo/1?maybe=bla") (code) (is (= 200 code)))
+  (with-request ("/todo/1?nokeyword=bla") (code) (is (= 404 code)))
+  ;; Test "Accept:" header
+  ;; 
+  (with-request ("/todo/1"
+                 :accept "application/json") (code) (is (= 404 code)))
+  (with-request ("/todo/1"
+                 :accept "application/*") (code) (is (= 404 code)))
+  (with-request ("/todo/1"
+                 :accept "text/*") (code) (is (= 200 code)))
+  (with-request ("/todo/1"
+                 :accept "text/plain") (code) (is (= 200 code)))
+  (with-request ("/todo/1"
+                 :accept "application/json; q=0.8,text/plain; garbage") (code) (is (= 200 code)))
+  (with-request ("/todo/1"
+                 :accept "application/json;text/plain") (code) (is (= 404 code)))
+  (with-request ("/todos"
+                 :accept "application/json;text/plain") (answer code headers)
+    (is (= 200 code))
+    (is (not (stringp answer)))
+    (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
+    (is (string= (cdr (find :content-type headers :key #'car))
+                 "APPLICATION/JSON")))
+  (with-request ("/todos"
+                 :accept "application/*;text/plain") (answer code headers)
+    (is (= 200 code))
+    (is (not (stringp answer)))
+    (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
+    (is (string= (cdr (find :content-type headers :key #'car))
+                 "APPLICATION/JSON")))
+  (with-request ("/todos"
+                 :accept "text/plain;application/json") (answer code)
+    (is (= 200 code))
+    (is (stringp answer)))
+  (let ((random (symbol-name (gensym))))
+    (with-request ("/todo/3"
+                   :method :put
+                   :content random
+                   :content-type "text/plain") (code)
+      (is (= 200 code)))
+    (with-request ("/todo/3"
+                   :method :get
+                   :accept "text/plain") (answer code)
       (is (= 200 code))
-      (is (not (stringp answer)))
-      (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
-      (is (string= (cdr (find :content-type headers :key #'car))
-                   "APPLICATION/JSON")))
-    (with-request ("/todos"
-                   :accept "application/*;text/plain") (answer code headers)
-      (is (= 200 code))
-      (is (not (stringp answer)))
-      (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
-      (is (string= (cdr (find :content-type headers :key #'car))
-                   "APPLICATION/JSON")))
-    (with-request ("/todos"
-                   :accept "text/plain;application/json") (answer code)
-      (is (= 200 code))
-      (is (stringp answer)))
-    (let ((random (symbol-name (gensym))))
-      (with-request ("/todo/3"
-                     :method :put
-                     :content random
-                     :content-type "text/plain") (nil code)
-        (is (= 200 code)))
-      (with-request ("/todo/3"
-                     :method :get
-                     :accept "text/plain") (answer code)
-        (is (= 200 code))
-        (is (string= answer random))))
-    ;; content-type in extension
-    ;; 
-    (with-request ("/todo/1.css") (answer code)
-      (is (= 200 code))
-      (is (search "CSS for TODO item 1" answer)))))
+      (is (string= answer random))))
+  ;; content-type in extension
+  ;; 
+  (with-request ("/todo/1.css") (answer code)
+    (is (= 200 code))
+    (is (search "CSS for TODO item 1" answer))))
 
 
 ;;; Genurl section

@@ -12,7 +12,15 @@
    #:probe-class-sym
    #:*mime-type-hash*
    #:resource-generic-function
-   #:find-resource))
+   #:find-resource
+   #:*all-resources*
+   #:find-verb-or-lose
+   #:parse-content-type-header
+   #:arglist-compatible-p
+   #:prefilter-accepts-header
+   #:parse-resource
+   #:content-classes-in-accept-string
+   #:gf-primary-method-specializer))
 
 (defpackage #:snooze
   (:use #:cl #:snooze-common)
@@ -50,6 +58,7 @@
    #:*catch-http-conditions*
    ;; request handling helpers
    ;; 
-   #:request-body))
+   #:request-body
+   #:handle-request))
 
 
