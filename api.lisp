@@ -78,7 +78,8 @@
 
 ;;; Conditions
 ;;
-(defparameter *debug-on-conditions-p* nil)
+(defparameter *catch-http-conditions* t)
+(defparameter *catch-errors* t)
 
 (define-condition http-condition (simple-condition)
   ((status-code :initarg :status-code :initform (error "Must supply a HTTP status code.")
@@ -108,10 +109,21 @@
   (:default-initargs
    :format-control "Resource exists but no such route"))
 
+(define-condition internal-server-error (http-condition) ()
+  (:default-initargs :status-code 500
+                     :format-control "Internal server error"))
+  
 (defgeneric explain-condition (condition content-type)
-  (:documentation "Explain CONDITION in CONTENT-TYPE.")
+  (:documentation "Explain CONDITION to client in CONTENT-TYPE.")
+  (:method (condition (content-type (eql 'failsafe)))
+    (format nil "~a" condition))
+  (:method (condition (content-type (eql 'full-backtrace)))
+    (format "SNOOZE has this to report:~a~%Backtrace:~%~a~a"
+            condition
+            (with-output-to-string (s)
+              (uiop/image:print-condition-backtrace condition :stream s))))
   (:method (condition (content-type snooze-types:text/html))
-    (format nil "Oops you got a ~a" (status-code condition))))
+    (format nil "<p>You seem to have triggered a <i>~a</i></p>" (status-code condition))))
 
 
 ;;; Advanced
@@ -140,16 +152,22 @@ number."))
 ;;;
 (defun matching-content-type-or-lose (resource verb args try-list)
   "Check RESOURCE for route matching VERB, TRY-LIST and ARGS.
-TRY-LIST is a list of subclasses of SNOOZE-TYPES:CONTENT.  Iterate its
-elements in order and return the first matching specializer that
-RESOURCE has for it. If none found error with NO-SUCH-ROUTE."
+TRY-LIST, a list of subclasses of SNOOZE-TYPES:CONTENT, is iterated.
+The first subclass for which RESOURCE has a matching specializer is
+used to create an instance, which is returned. If none is found error
+out with NO-SUCH-ROUTE."
   (or (some (lambda (maybe)
-              (gf-primary-method-specializer
-               resource
-               (list* verb (make-instance maybe) args)
-               1))
-            try-list)
-      (error 'snooze:no-such-route :status-code 23)))
+              (when (gf-primary-method-specializer
+                     resource
+                     (list* verb maybe args)
+                     1)
+                maybe))
+            (mapcar #'make-instance try-list))
+      (error 'snooze:no-such-route
+             :status-code (if (typep snooze-verbs:sending-verb verb)
+                              )
+
+             )))
 
 (defun handle-request (uri
                        &key
@@ -162,8 +180,10 @@ RESOURCE has for it. If none found error with NO-SUCH-ROUTE."
                           nil home-resource-provided-p)
                          (resource-name-regexp
                           "/([^/.]+)" resource-name-regexp-provided-p)
-                         (debug-on-conditions-p *debug-on-conditions-p*)
-                         (allow-extension-as-accept t))
+                         (catch-http-conditions *catch-http-conditions*)
+                         (catch-errors *catch-errors*)
+                         (allow-extension-as-accept t)
+                         (respect-accept-on-conditions nil))
   (block retval-block
     (multiple-value-bind (resource pargs kwargs content-class-in-uri)
         (apply #'parse-resource (puri:parse-uri uri)
@@ -178,56 +198,113 @@ RESOURCE has for it. If none found error with NO-SUCH-ROUTE."
                `(,@(if (and content-class-in-uri
                             allow-extension-as-accept)
                        (list content-class-in-uri))
-                 ,@(content-classes-in-accept-string accept))))
-        (handler-bind ((snooze:http-condition
-                         (lambda (c)
-                           (unless debug-on-conditions-p
-                             (let ((response-content-type
-                                     (some (lambda (wanted)
-                                             (gf-primary-method-specializer
-                                              #'explain-condition
-                                              (list c (make-instance wanted))
-                                              1))
-                                           client-accepted-content-types)))
-                               (return-from retval-block
-                                 (values (status-code c)
-                                         (explain-condition c (make-instance (or response-content-type
-                                                                                 t)))
-                                         response-content-type)))))))
-          (unless resource
-            (error 'snooze:no-such-resource
-                          :resource nil
-                          :verb verb
-                          :format-control
-                          "So sorry, but that URI doesn't match any REST resources"))
-          (let ((converted-arguments (convert-arguments resource pargs kwargs)))
-            (cond ((not (arglist-compatible-p resource converted-arguments))
-                   (error 'snooze:invalid-resource-arguments
-                          :format-control
-                          "Too many, too few, or unsupported query arguments for REST resource ~a"
-                          :format-arguments
-                          (list resource)))
-                  (t
-                   (let* ((content-types-to-try
-                            (etypecase verb
-                              (snooze-verbs:sending-verb client-accepted-content-types)
-                              (snooze-verbs:receiving-verb
-                               (list (or (and content-class-in-uri
-                                              allow-extension-as-accept)
-                                         (parse-content-type-header content-type)
-                                         (error "unknown content type"))))))
-                          (matching
-                            (matching-content-type-or-lose
-                             resource
-                             verb
-                             converted-arguments
-                             content-types-to-try)))
-                     (values 200
-                             (apply resource
-                                    verb
-                                    (make-instance matching)
-                                    converted-arguments)
-                             matching))))))))))
+                 ,@(or (content-classes-in-accept-string accept)
+                       (list (find-content-class 'snooze-types:text/plain))))))
+        (flet ((respond (code body content-type-designator)
+                 (return-from retval-block
+                   (values code body (find-content-class content-type-designator)))))
+          (handler-bind ((error
+                           (lambda (e)
+                             (cond ((eq catch-errors :backtrace)
+                                    (respond 500
+                                            (explain-condition e 'full-backtrace)
+                                            'text/plain))
+                                   (catch-errors
+                                    (respond 500
+                                             (explain-condition e 'failsafe)
+                                             'text/plain)))))
+                         (http-condition
+                           (lambda (c)
+                             (cond ((eq catch-http-conditions :backtrace)
+                                    (respond
+                                     (status-code c)
+                                     (explain-condition c 'full-backtrace)
+                                     'text/plain))))))
+            (flet ((explain-condition-to-client (code condition)
+                     (let ((response-content-type
+                             (some (lambda (wanted)
+                                     (when (gf-primary-method-specializer
+                                            #'explain-condition
+                                            (list condition wanted)
+                                            1)
+                                       wanted))
+                                   (mapcar #'make-instance
+                                           (append client-accepted-content-types
+                                                   (unless respect-accept-on-conditions
+                                                     '(snooze-types:text/html)))))))
+                       (respond code
+                                (explain-condition condition response-content-type)
+                                response-content-type))))
+              (handler-bind ((http-condition
+                               (lambda (c)
+                                 (when (and catch-http-conditions
+                                            (not (eq catch-http-conditions :backtrace)))
+                                   (explain-condition-to-client (status-code c) c))))
+                             (error
+                               (lambda (e)
+                                 (when (and catch-errors
+                                            (not (eq catch-errors :backtrace)))
+                                   (explain-condition-to-client 501 e)))))
+                (unless resource
+                  (error 'snooze:no-such-resource
+                         :resource nil
+                         :verb verb
+                         :format-control
+                         "So sorry, but that URI doesn't match any REST resources"))
+                (let ((converted-arguments (convert-arguments resource pargs kwargs)))
+                  (cond ((not (arglist-compatible-p resource converted-arguments))
+                         (error 'snooze:invalid-resource-arguments
+                                :format-control
+                                "Too many, too few, or unsupported query arguments for REST resource ~a"
+                                :format-arguments
+                                (list resource)))
+                        (t
+                         (let* ((content-types-to-try
+                                  (etypecase verb
+                                    (snooze-verbs:sending-verb client-accepted-content-types)
+                                    (snooze-verbs:receiving-verb
+                                     (list (or (and content-class-in-uri
+                                                    allow-extension-as-accept)
+                                               (parse-content-type-header content-type)
+                                               (error "unknown content type"))))))
+                                (matching-ct
+                                  (matching-content-type-or-lose resource
+                                                                 verb
+                                                                 converted-arguments
+                                                                 content-types-to-try)))
+                           (multiple-value-bind (payload code payload-ct headers)
+                               (apply resource
+                                      verb
+                                      matching-ct
+                                      converted-arguments)
+                             (unless code
+                               (setq code (nominal-code-for-verb verb)))
+                             (cond (payload-ct
+                                    (when (and (typep verb snooze-verbs:sending-verb)
+                                               (not (typep payload-ct (class-of matching-ct))))
+                                      (warn "Route declared ~a as a its payload content-type, but it matched ~a"
+                                            payload-ct matching-ct)))
+                                   (t
+                                    (setq payload-ct
+                                          (if (typep verb snooze-verbs:sending-verb)
+                                              matching-ct
+                                              ;; default
+                                              'snooze-types:text/html))))
+                             (setq headers
+                                   (remove-duplicates
+                                    `((:content-type . ,payload-ct)
+                                      ,@(nominal-headers-for-verb verb uri)
+                                      ,@headers)
+                                    :key #'car)))
+                           
+
+                           
+                           (respond 200
+                                    (apply resource
+                                           verb
+                                           matching
+                                           converted-arguments)
+                                    matching)))))))))))))
 
 
 

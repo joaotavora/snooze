@@ -21,6 +21,8 @@
 (cl:defclass snooze-verbs:put            (snooze-verbs:receiving-verb) ())
 (cl:defclass snooze-verbs:get            (snooze-verbs:sending-verb) ())
 
+(defun destructive-p (verb) (typep verb snooze-verbs:receiving-verb))
+
 
 ;;; Content-types
 ;;;
@@ -39,16 +41,13 @@
 ;;; [1]: http://stackoverflow.com/questions/978061/http-get-with-request-body
 ;;;
 
-(defpackage :snooze-types (:use) (:export #:content))
+(defpackage :snooze-types (:use) (:export #:content #:debug-condition))
 
 (defclass snooze-types:content () ())
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun intern-safe (designator package)
     (intern (string-upcase designator) package))
-  (defun send-any-symbol (supertype)
-    (intern (string-upcase (format nil "SEND-ANY-~a" supertype))
-            :snooze-types))
   (defun scan-to-strings* (regex string)
     (coerce (nth-value 1
                        (cl-ppcre:scan-to-strings regex
@@ -80,7 +79,8 @@
 
 (defun find-content-class (designator)
   "Return class for DESIGNATOR if it defines a content-type or nil."
-  (or (and (eq designator t)
+  (if (typep designator 'snooze-types:content) designator
+      (or (and (eq designator t)
            (progn
              (alexandria:simple-style-warning
               "Coercing content-designating type designator T to ~s"
@@ -96,7 +96,7 @@
                                         (aref matches 0))))
         (find-class
          (intern (string-upcase supertype-designator) :snooze-types)
-         nil))))
+         nil)))))
 
 
 ;;; Resources
@@ -384,10 +384,14 @@
             content-type-class)))
 
 (defun content-classes-in-accept-string (string)
-  (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
-        for media-range = (first (scan-to-strings* "([^;]*)" media-range-and-params))
-        for class = (find-content-class media-range)
-        when class collect it))
+  (labels ((expand (class)
+             (cons class
+                   (reduce #'append (mapcar #'expand (closer-mop:class-direct-subclasses class))))))
+    (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
+          for media-range = (first (scan-to-strings* "([^;]*)" media-range-and-params))
+          for class = (find-content-class media-range)
+          when class
+            append (expand class))))
 
 (defun arglist-compatible-p (resource args)
   (handler-case

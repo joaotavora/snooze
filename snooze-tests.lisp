@@ -190,7 +190,7 @@
   (with-request ("/todo/1"
                  :accept "application/json;text/plain") (code) (is (= 404 code)))
   (with-request ("/todos"
-                 :accept "application/json;text/plain") (answer code headers)
+                 :accept "application/json;text/plain") (code headers)
     (is (= 200 code))
     (is (not (stringp answer)))
     (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))

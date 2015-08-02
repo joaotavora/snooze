@@ -20,7 +20,10 @@
    #:prefilter-accepts-header
    #:parse-resource
    #:content-classes-in-accept-string
-   #:gf-primary-method-specializer))
+   #:gf-primary-method-specializer
+   #:debug
+   #:debug-condition
+   #:destructive-p))
 
 (defpackage #:snooze
   (:use #:cl #:snooze-common)
@@ -59,6 +62,7 @@
    ;; request handling helpers
    ;; 
    #:request-body
-   #:handle-request))
+   #:handle-request
+   #:*catch-errors*))
 
 
