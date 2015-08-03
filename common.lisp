@@ -21,7 +21,7 @@
 (cl:defclass snooze-verbs:put            (snooze-verbs:receiving-verb) ())
 (cl:defclass snooze-verbs:get            (snooze-verbs:sending-verb) ())
 
-(defun destructive-p (verb) (typep verb snooze-verbs:receiving-verb))
+(defun destructive-p (verb) (typep verb 'snooze-verbs:receiving-verb))
 
 
 ;;; Content-types
@@ -79,24 +79,31 @@
 
 (defun find-content-class (designator)
   "Return class for DESIGNATOR if it defines a content-type or nil."
-  (if (typep designator 'snooze-types:content) designator
-      (or (and (eq designator t)
-           (progn
-             (alexandria:simple-style-warning
-              "Coercing content-designating type designator T to ~s"
-              'snooze-types:content)
-             (find-class 'snooze-types:content)))
-      (find-class (intern (string-upcase designator) :snooze-types) nil)
-      (and (string= designator "*/*") (find-class 'snooze-types:content))
-      (let* ((matches (nth-value 1
-                                 (cl-ppcre:scan-to-strings
-                                  "([^/]+)/\\*"
-                                  (string-upcase designator))))
-             (supertype-designator (and matches
-                                        (aref matches 0))))
-        (find-class
-         (intern (string-upcase supertype-designator) :snooze-types)
-         nil)))))
+  (cond ((typep designator 'snooze-types:content)
+         (class-of designator))
+        ((and (typep designator 'class)
+              (subtypep designator 'snooze-types:content))
+         designator)
+        ((eq designator t)
+         (alexandria:simple-style-warning
+                     "Coercing content-designating type designator T to ~s"
+                     'snooze-types:content)
+         (find-class 'snooze-types:content))
+        ((or (symbolp designator)
+             (stringp designator))
+         (or (find-class (intern (string-upcase designator) :snooze-types) nil)
+             (and (string= designator "*/*") (find-class 'snooze-types:content))
+             (let* ((matches (nth-value 1
+                                        (cl-ppcre:scan-to-strings
+                                         "([^/]+)/\\*"
+                                         (string-upcase designator))))
+                    (supertype-designator (and matches
+                                               (aref matches 0))))
+               (find-class
+                (intern (string-upcase supertype-designator) :snooze-types)
+                nil))))
+        (t
+         (error "~a cannot possibly designate a content-type"))))
 
 
 ;;; Resources
@@ -395,10 +402,12 @@
 
 (defun arglist-compatible-p (resource args)
   (handler-case
-      (eval `(apply (lambda ,(closer-mop:generic-function-lambda-list
-                              resource)
-                      t)
-                    (list t t ,@args)))
+      ;; FIXME: evaluate this need for eval, for security reasons
+      (let ((*read-eval* nil))
+        (eval `(apply (lambda ,(closer-mop:generic-function-lambda-list
+                                  resource)
+                        t)
+                        '(t t ,@args))))
     (error () nil)))
 
 (defun parse-content-type-header (string)

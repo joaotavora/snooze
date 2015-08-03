@@ -2,6 +2,7 @@
   (:use #:cl #:snooze)
   (:import-from  #:snooze-common
                  #:verb-spec-or-lose
+                 #:find-content-class
                  #:content-type-spec-or-lose-1
                  #:parse-resource))
 (in-package :snooze-tests)
@@ -108,7 +109,6 @@
 (in-package :snooze-demo)
 
 (defparameter *todo-counter* 0)
-(defvar *mock-http-payload*)
 
 (defclass todo ()
   ((id :initform (incf *todo-counter*) :accessor todo-id)
@@ -140,9 +140,17 @@
   (let ((todo (find id *todos* :key #'todo-id)))
     (if todo
         (setf (todo-task todo)
-              (babel:octets-to-string
-               *mock-http-payload*))
+              *mock-http-payload*)
         (error 'snooze:404 :format-control "No such todo!"))))
+
+(defmethod todo ((snooze-verbs:http-verb snooze-verbs:put)
+                        (content snooze-types:text/plain) id &key
+                        maybe)
+         (declare (ignore maybe))
+         (let ((todo (find id *todos* :key #'todo-id)))
+           (if todo
+               (setf (todo-task todo) snooze-tests::*mock-http-payload*)
+             (error 'snooze:|404| :format-control "no such todo!"))))
 
 (snooze:defresource todos (method content))
 
@@ -168,19 +176,21 @@
                       collect `(,arg (nth ,i ,result-sym))))
        ,@body)))
 
-(deftest test-some-routes (&optional (use-this-server *use-this-server*))
+(defvar *mock-http-payload* "fornix")
+
+(deftest test-some-routes ()
   (with-request ("/todo/1") (code) (is (= 200 code)))
   (with-request ("/todo/10") (code) (is (= 404 code)))
   ;; Test keywords args
   ;; 
   (with-request ("/todo/1?maybe=bla") (code) (is (= 200 code)))
-  (with-request ("/todo/1?nokeyword=bla") (code) (is (= 404 code)))
+  (with-request ("/todo/1?nokeyword=bla") (code) (is (= 400 code)))
   ;; Test "Accept:" header
   ;; 
   (with-request ("/todo/1"
-                 :accept "application/json") (code) (is (= 404 code)))
+                 :accept "application/json") (code) (is (= 406 code)))
   (with-request ("/todo/1"
-                 :accept "application/*") (code) (is (= 404 code)))
+                 :accept "application/*") (code) (is (= 406 code)))
   (with-request ("/todo/1"
                  :accept "text/*") (code) (is (= 200 code)))
   (with-request ("/todo/1"
@@ -188,41 +198,39 @@
   (with-request ("/todo/1"
                  :accept "application/json; q=0.8,text/plain; garbage") (code) (is (= 200 code)))
   (with-request ("/todo/1"
-                 :accept "application/json;text/plain") (code) (is (= 404 code)))
-  (with-request ("/todos"
-                 :accept "application/json;text/plain") (code headers)
+                 :accept "application/json;text/plain") (code) (is (= 406 code)))
+  (with-request ("/todos" 
+                 :accept "application/json;text/plain") (code payload ct)
     (is (= 200 code))
-    (is (not (stringp answer)))
-    (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
-    (is (string= (cdr (find :content-type headers :key #'car))
-                 "APPLICATION/JSON")))
+    (is (cl-ppcre:scan "NOTREALLYJSON" payload))
+    (is (eq ct (find-content-class "application/json"))))
   (with-request ("/todos"
-                 :accept "application/*;text/plain") (answer code headers)
+                 :accept "application/*;text/plain") (code payload ct)
     (is (= 200 code))
-    (is (not (stringp answer)))
-    (is (cl-ppcre:scan "NOTREALLYJSON" (babel:octets-to-string answer)))
-    (is (string= (cdr (find :content-type headers :key #'car))
-                 "APPLICATION/JSON")))
+    (is (cl-ppcre:scan "NOTREALLYJSON" payload))
+    (is (eq ct (find-content-class "application/json"))))
   (with-request ("/todos"
-                 :accept "text/plain;application/json") (answer code)
+                 :accept "text/plain;application/json") (code payload ct)
     (is (= 200 code))
-    (is (stringp answer)))
-  (let ((random (symbol-name (gensym))))
+    (is (stringp payload))
+    (is (eq ct (find-content-class "text/plain"))))
+  (let ((*mock-http-payload* (symbol-name (gensym))))
     (with-request ("/todo/3"
                    :method :put
-                   :content random
+                   :catch-errors nil
+                   :catch-http-conditions nil
                    :content-type "text/plain") (code)
       (is (= 200 code)))
     (with-request ("/todo/3"
                    :method :get
-                   :accept "text/plain") (answer code)
+                   :accept "text/plain") (code payload)
       (is (= 200 code))
-      (is (string= answer random))))
+      (is (string= payload *mock-http-payload*))))
   ;; content-type in extension
   ;; 
-  (with-request ("/todo/1.css") (answer code)
+  (with-request ("/todo/1.css") (code payload)
     (is (= 200 code))
-    (is (search "CSS for TODO item 1" answer))))
+    (is (search "CSS for TODO item 1" payload))))
 
 
 ;;; Genurl section
