@@ -360,7 +360,19 @@
                          (resource-name-regexp "/([^/.]+)")
                          (resources (all-resources))
                          (home-resource nil))
-  "Parse SCRIPT-NAME and QUERY-STRING . Return values RESOURCE ARGS CONTENT-TYPE."
+  "Parse URI for a resource and how it should be called.
+
+See HANDLE-REQUEST for meaning of RESOURCE-NAME-REGEXP, RESOURCES and
+HOME-RESOURCE.
+
+Return 4 values: RESOURCE, PLAIN-ARGS, KEYWORD-ARGS and
+EXT-CONTENT-TYPE. RESOURCE is a generic function verifying RESOURCE-P.
+PLAIN-ARGS is a list of unconverted argument values that the
+user-agent wants to pass to the function before any keyword
+arguments. KEYWORD-ARGS is a plist of keys and unconverted argument
+values that user agent wants to pass to the function as keyword
+arguments. EXT-CONTENT-TYPE is a subclass of SNOOZE-TYPES:CONTENT
+discovered from the uri \"file extension\" bit."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
   ;;
   (let* ((uri (puri:parse-uri uri))
@@ -375,7 +387,8 @@
                            (list (first match) (second match))))))
          (first-slash-resource
            (find resource-name resources :key #'resource-name :test #'string-equal))
-         (resource (or (and resource-name first-slash-resource)
+         (resource (if resource-name
+                       first-slash-resource
                        home-resource))
          (script-minus-resource (if first-slash-resource
                                     (subseq script-name (second match))

@@ -129,7 +129,7 @@
   (let ((todo (find id *todos* :key #'todo-id)))
     (if todo
         (todo-task todo)
-        (error 'snooze:404 :format-control "No such todo!"))))
+        (http-condition 404 "No such TODO!"))))
 
 (snooze:defroute todo (:get "text/css" id &key maybe)
   (declare (ignore maybe))
@@ -140,8 +140,8 @@
   (let ((todo (find id *todos* :key #'todo-id)))
     (if todo
         (setf (todo-task todo)
-              *mock-http-payload*)
-        (error 'snooze:404 :format-control "No such todo!"))))
+              snooze-tests::*mock-http-payload*)
+        (http-condition 404 "No such TODO!"))))
 
 (defmethod todo ((snooze-verbs:http-verb snooze-verbs:put)
                         (content snooze-types:text/plain) id &key
@@ -150,7 +150,7 @@
          (let ((todo (find id *todos* :key #'todo-id)))
            (if todo
                (setf (todo-task todo) snooze-tests::*mock-http-payload*)
-             (error 'snooze:|404| :format-control "no such todo!"))))
+             (http-condition 404 "No such TODO!"))))
 
 (snooze:defresource todos (method content))
 
@@ -183,7 +183,7 @@
   (with-request ("/todo/10") (code) (is (= 404 code)))
   ;; Test keywords args
   ;; 
-  (with-request ("/todo/1?maybe=bla") (code) (is (= 200 code)))
+  (with-request ("/todo/1?maybe=bla" :catch-errors nil) (code) (is (= 200 code)))
   (with-request ("/todo/1?nokeyword=bla") (code) (is (= 400 code)))
   ;; Test "Accept:" header
   ;; 

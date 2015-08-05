@@ -95,14 +95,16 @@
   (assert (<= 500 (status-code e) 599) nil
           "An HTTP error must have a status code between 500 and 599"))
 
-(defun http-error (status-code
+(defun http-condition (status-code
                    &optional (format-control nil format-control-supplied-p)
                              (format-args nil format-args-supplied-p))
-  (apply #'error 'http-error :status-code status-code
+  (apply #'error 'http-condition :status-code status-code
          `(,@(if format-args-supplied-p
                  `(:format-arguments ,format-args))
            ,@(if format-control-supplied-p
                  `(:format-control ,format-control)))))
+
+
 
 (define-condition no-such-resource (http-condition) ()
   (:default-initargs
@@ -147,7 +149,7 @@
                  value)))
     (append
      (mapcar #'probe plain-arguments)
-     (loop for (key value) in keyword-arguments by #'cddr
+     (loop for (key value) on keyword-arguments by #'cddr
            collect key
            collect (probe value)))))
   (:documentation
