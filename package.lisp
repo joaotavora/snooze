@@ -23,7 +23,9 @@
    #:gf-primary-method-specializer
    #:debug
    #:debug-condition
-   #:destructive-p))
+   #:destructive-p
+   #:content-class-name
+   #:all-resources))
 
 (defpackage #:snooze
   (:use #:cl #:snooze-common)
@@ -63,6 +65,9 @@
    ;; 
    #:request-body
    #:handle-request
-   #:*catch-errors*))
+   #:*catch-errors*
+   #:*backend*
+   #:*request*
+   #:make-clack-app))
 
 

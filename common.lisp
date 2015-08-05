@@ -60,7 +60,10 @@
   (let* ((type (intern-safe type-designator :snooze-types))
          (supertype (intern-safe supertype-designator :snooze-types)))
     `(progn
+       (setf (get ',type 'name) ,(string-downcase (symbol-name type)))
        (unless (find-class ',supertype nil)
+         (setf (get ',supertype 'name) ,(format nil "~a/*"
+                                               (string-downcase (symbol-name supertype))))
          (defclass ,supertype (snooze-types:content) ()))
        (defclass ,type (,supertype) ())
        (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -103,7 +106,11 @@
                 (intern (string-upcase supertype-designator) :snooze-types)
                 nil))))
         (t
-         (error "~a cannot possibly designate a content-type"))))
+         (error "~a cannot possibly designate a content-type" designator))))
+
+(defun content-class-name (designator)
+  (get (class-name (find-content-class designator)) 'name))
+
 
 
 ;;; Resources
@@ -138,6 +145,8 @@
 (defmethod initialize-instance :after ((gf resource-generic-function) &rest args)
   (declare (ignore args))
   (pushnew gf *all-resources*))
+
+(defun all-resources () *all-resources*)
 
 (defun probe-class-sym (sym)
   "Like CL:FIND-CLASS but don't error and return SYM or nil"
@@ -332,12 +341,15 @@
       thing))
 
 (defun parse-args-in-uri (args-string query fragment)
-  (let* ((plain-args (cl-ppcre:split "/" (subseq args-string (mismatch "/" args-string))))
-         (keyword-args (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
-                             for (key-name value) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
-                             when (and key-name value)
-                               append (list (intern (string-upcase key-name) :keyword)
-                                            value))))
+  (let* ((after-/ (mismatch "/" args-string))
+         (plain-args (and after-/
+                          (cl-ppcre:split "/" (subseq args-string after-/))))
+         (keyword-args (and query
+                            (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
+                                  for (key-name value) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
+                                  when (and key-name value)
+                                    append (list (intern (string-upcase key-name) :keyword)
+                                                 value)))))
     (values plain-args
             (append keyword-args
                     (when fragment
@@ -346,7 +358,7 @@
 (defun parse-resource (uri
                        &key
                          (resource-name-regexp "/([^/.]+)")
-                         (resources *all-resources*)
+                         (resources (all-resources))
                          (home-resource nil))
   "Parse SCRIPT-NAME and QUERY-STRING . Return values RESOURCE ARGS CONTENT-TYPE."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
