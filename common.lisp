@@ -317,12 +317,12 @@
                     (when fragment
                       (list 'snooze:fragment fragment))))))
 
-(defun parse-resource (uri
+(defun parse-resource (uri-path
                        &key
                          (resource-name-regexp "/([^/.]+)")
                          (resources (all-resources))
                          (home-resource nil))
-  "Parse URI for a resource and how it should be called.
+  "Parse URI-PATH for a resource and how it should be called.
 
 See HANDLE-REQUEST for meaning of RESOURCE-NAME-REGEXP, RESOURCES and
 HOME-RESOURCE.
@@ -337,7 +337,7 @@ arguments. EXT-CONTENT-TYPE is a subclass of SNOOZE-TYPES:CONTENT
 discovered from the uri \"file extension\" bit."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
   ;;
-  (let* ((uri (puri:parse-uri uri))
+  (let* ((uri (puri:parse-uri uri-path))
          (script-name (puri:uri-path uri))
          (match (multiple-value-list (cl-ppcre:scan resource-name-regexp
                                                     script-name)))
