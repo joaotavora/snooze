@@ -54,18 +54,20 @@
    #:http-condition
    #:status-code
    #:http-error
-   #:|404|
    #:no-such-resource
    #:invalid-resource-arguments
    #:no-such-route
    #:no-matching-content-types
    #:explain-condition
-   #:*catch-http-conditions*
    ;; request handling helpers
    ;; 
    #:request-body
    #:handle-request
    #:*catch-errors*
+   #:*catch-http-conditions*
+   #:*respect-accept-on-conditions*
+   ;; backend stuff
+   ;; 
    #:*backend*
    #:*request*
    #:make-clack-app))
