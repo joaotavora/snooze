@@ -2,7 +2,7 @@
   (:use #:cl)
   (:export
    #:ensure-atom
-   #:make-genurl-form
+   #:make-genpath-form
    #:content-type-spec-or-lose
    #:verb-spec-or-lose
    #:parse-defroute-args
@@ -72,4 +72,4 @@
    #:*request*
    #:make-clack-app))
 
-
+(defpackage :snooze-types (:use) (:export #:content))

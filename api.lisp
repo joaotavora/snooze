@@ -8,7 +8,7 @@
 ;;; Route definition
 ;;;
 (defmacro defresource (name lambda-list &rest options)
-  (let* ((genurl-form)
+  (let* ((genpath-form)
          (defgeneric-args
            (loop for option in options
                  for routep = (eq :route (car option))
@@ -27,9 +27,9 @@
                               ,@qualifiers
                               (,verb-spec ,type-spec ,@(nthcdr 2 spec-list))
                               ,@body)
-                 else if (eq :genurl (car option))
-                        do (setq genurl-form
-                                 (make-genurl-form (second option) name
+                 else if (eq :genpath (car option))
+                        do (setq genpath-form
+                                 (make-genpath-form (second option) name
                                                    (nthcdr 2 lambda-list)))
                  else
                    collect option))
@@ -37,7 +37,7 @@
                                              (ensure-atom argspec))
                                          lambda-list)))
     `(progn
-       ,@(if genurl-form `(,genurl-form))
+       ,@(if genpath-form `(,genpath-form))
        (defgeneric ,name ,simplified-lambda-list
          (:generic-function-class resource-generic-function)
          ,@defgeneric-args))))

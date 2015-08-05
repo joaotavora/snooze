@@ -170,7 +170,7 @@ single `defresource` definitions, much like `defmethod` can be in a
 
 ```lisp
 (snooze:defresource todo (verb content-type id)
-  (:genurl todo-url)
+  (:genpath todo-url)
   (:route (:get "text/*" id)
           (todo-task (find-todo-or-lose id)))
   (:route (:get "text/html" id)
@@ -203,7 +203,7 @@ Confusing? Consider a route that lets you filter the `todo` items:
 
 ```
 (snooze:defresource todos (verb content-type &key from to substring)
-  (:genurl todos-url)
+  (:genpath todos-url)
   (:route (:get "text/plain" &key from to substring)
           (format
            nil "~{~a~^~%~}"

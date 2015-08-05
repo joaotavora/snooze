@@ -105,8 +105,8 @@
 
 ;;; Some tests from the README.md
 ;;;
-(cl:defpackage :snooze-demo (:use :cl))
-(in-package :snooze-demo)
+(cl:defpackage :snooze-tests-demo (:use :cl :snooze))
+(in-package :snooze-tests-demo)
 
 (defparameter *todo-counter* 0)
 
@@ -232,44 +232,27 @@
       (is (search "CSS for TODO item 1" payload)))))
 
 
-;;; Genurl section
+;;; Genpath section
 ;;; 
 (fiasco:define-test-package :snooze-demo-fancy
   (:use :cl :snooze))
 (in-package :snooze-demo-fancy)
 
 (defresource book (verb content-type file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
-  (:genurl book-url)
+  (:genpath book-url)
   (:route :around (:get "text/plain" file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
-          (declare (ignore file user coiso e tal fornix yo))))
+          (declare (ignore file user coiso tal fornix yo))))
 
-(defresource papyrus (verb content-type file user &key protocol host)
-  (:genurl papyrus-url))
-
-(defresource testament (verb content-type &optional a &rest anything)
-  (:genurl testament-url))
-
-(deftest genurl-madness ()
-  (is (string= (book-url "yo" "yeah" nil nil :protocol "bla" :host "ble")
-               "bla://ble/book/yo/yeah?yo=yobla"))
-  (signals error (book-url "yo" "yeah" nil "AHA" :protocol "bla" :host "ble"))
-  (is (string= (book-url "yo" "yeah" "OK" nil :protocol "bla" :host "ble")
-               "bla://ble/book/yo/yeah/OK?yo=yobla"))
-  (is (string= (book-url "yo" "yeah" "OK" nil :protocol "bla" :host "ble" :yo "mama" :fornix nil)
-               "bla://ble/book/yo/yeah/OK?yo=mama"))
+(deftest genpath-madness ()
+  (is (string= (book-url "yo" "yeah" nil nil)
+               "book/yo/yeah?yo=yobla"))
+  (signals error (book-url "yo" "yeah" nil "AHA"))
+  (is (string= (book-url "yo" "yeah" "OK" nil)
+               "book/yo/yeah/OK?yo=yobla"))
+  (is (string= (book-url "yo" "yeah" "OK" nil :yo "mama" :fornix nil)
+               "book/yo/yeah/OK?yo=mama"))
   (is (string= (book-url "yo" "yeah") "book/yo/yeah/coiso/bla?yo=yobla"))
-  
-  ;; This one remembered to have keyword args named "protocol" and "host"
-  ;;
-  (is (string= (papyrus-url "a" "b" :protocol "shit"
-                            'snooze-syms:protocol "https" 'snooze-syms:host "localhost")
-               "https://localhost/papyrus/a/b?protocol=shit"))
-  (is (string= (papyrus-url "a" "b" :protocol "shit"
-                                    :protocol "https" 'snooze-syms:host "localhost")
-               "http://localhost/papyrus/a/b?protocol=shit"))
-  (is (string= (papyrus-url "a" "b" :protocol "https" 'snooze-syms:host "localhost")
-               "http://localhost/papyrus/a/b?protocol=https"))
-  (signals error (papyrus-url "a" "b" :protocol "https" 'snooze-syms:protocol :ssh)))
+  (is (string= (book-url "yo with a space" "yeah") "book/yo with a space/yeah/coiso/bla?yo=yobla")))
 
 
 
