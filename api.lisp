@@ -80,7 +80,6 @@
 ;;
 (defparameter *catch-http-conditions* t)
 (defparameter *catch-errors* t)
-(defparameter *respect-accept-on-conditions* t)
 
 (define-condition http-condition (simple-condition)
   ((status-code :initarg :status-code :initform (error "Must supply a HTTP status code.")
@@ -134,9 +133,7 @@
     (format nil "SNOOZE has this to report:~a~%Backtrace:~%~a"
             condition
             (with-output-to-string (s)
-              (uiop/image:print-condition-backtrace condition :stream s))))
-  (:method (condition (content-type snooze-types:text/html))
-    (format nil "<p>You seem to have triggered a <i>~a</i></p>" (status-code condition))))
+              (uiop/image:print-condition-backtrace condition :stream s)))))
 
 
 ;;; Advanced
@@ -207,38 +204,46 @@ out with NO-SUCH-ROUTE."
           (explain 'failsafe))))))
 
 (defun call-politely-explaining-conditions (client-accepts fn)
-  (let (code condition)
-    (flet ((explain ()
-             (let ((response-content-type
-                     (some (lambda (wanted)
-                             (when (gf-primary-method-specializer
-                                    #'explain-condition
-                                    (list condition wanted)
-                                    1)
-                               wanted))
-                           (mapcar #'make-instance (append client-accepts
-                                                           (unless *respect-accept-on-conditions*
-                                                             '(snooze-types:text/html)))))))
+  (let (code
+        condition
+        accepted-type)
+    (labels ((accepted-type (condition)
+               (some (lambda (wanted)
+                       (when (gf-primary-method-specializer
+                              #'explain-condition
+                              (list condition wanted)
+                              1)
+                         wanted))
+                     (mapcar #'make-instance client-accepts)))
+             (explain ()
                (throw 'response
                  (values code
-                         (explain-condition condition response-content-type)
-                         response-content-type)))))
+                         (explain-condition condition accepted-type)
+                         accepted-type))))
       (restart-case 
-          (handler-bind ((http-condition
+          (handler-bind ((condition
                            (lambda (c)
-                             (setq code (status-code c) condition c)
+                             (setq condition c
+                                   accepted-type (accepted-type condition))))
+                         (http-condition
+                           (lambda (c)
+                             (setq code (status-code c))
                              (when (and *catch-http-conditions*
                                         (not (eq *catch-http-conditions* :backtrace)))
-                               (invoke-restart 'explain-condition-to-client))))
+                               (invoke-restart 'politely-explain))))
                          (error
                            (lambda (e)
-                             (setq code 501 condition e)
+                             (declare (ignore e))
+                             (setq code 501)
                              (when (and *catch-errors*
                                         (not (eq *catch-errors* :backtrace)))
-                               (invoke-restart 'explain-condition-to-client)))))
+                               (invoke-restart 'politely-explain)))))
             (funcall fn))
-        (explain-condition-to-client ()
-          :report "Explain condition to client"
+        (politely-explain ()
+          :report (lambda (s)
+                    (format s "Politely explain to client in ~a"
+                            accepted-type))
+          :test (lambda (c) (declare (ignore c)) accepted-type)
           (explain))
         (auto-catch ()
           :report (lambda (s)
@@ -248,7 +253,10 @@ out with NO-SUCH-ROUTE."
           (if (typep condition 'http-condition)
               (setq *catch-http-conditions* t)
               (setq *catch-errors* t))
-          (explain))))))
+          (if (find-restart 'politely-explain)
+              (explain)
+              (if (find-restart 'failsafe-explain)
+                  (invoke-restart 'failsafe-explain))))))))
 
 (defmacro brutally-explaining-conditions (() &body body)
   "Explain conditions in BODY in a failsafe way.
