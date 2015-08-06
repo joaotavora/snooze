@@ -25,7 +25,7 @@ client in a format accepted by the user agent as indicated in the
 plain text explanation with a full Lisp backtrace indicating where the
 condition originated.")
 
-(defparameter *catch-errors* nil
+(defparameter *catch-errors* t
   "If non-nil, catch any error and explain them to the client.
 If T, an attempt is made to \"politely\" explain the condition to the
 client in a format accepted by the user agent as indicated in the

@@ -3,12 +3,9 @@ Snooze
 
 _Snooze_ is a framework for building REST web services in Common Lisp. 
 
-Here's a small sample
+Here's a small sample:
 
 ```lisp
-(defpackage :snooze-symbols)
-(in-package :snooze-symbols)
-
 (snooze:defroute probe-symbol (:get "text/plain" symbol-name &key (package :cl))
   (if (and (find-package (string-upcase package))
            (find-symbol (string-upcase symbol-name)
@@ -16,8 +13,7 @@ Here's a small sample
       (format nil "Hello world, package ~a has the symbol ~a" package symbol-name)
       (snooze:http-error 404 "Sorry, no such symbol")))
 
-(snooze:start (make-instance 'snooze:snooze-server :port 9003
-                             :route-packages '(:snooze-symbols)))
+(clack:clackup (make-clack-app) :port 9003)
 ```
 
 You can now navigate to:
@@ -30,12 +26,27 @@ http://localhost:9003/probe-symbol/defroute?package=snooze
 Rationale
 ---------
 
-_Snooze_ sees the operations of Representation State Transfer (REST)
-as really only **function calls** on resources.
+_Snooze_ models HTTP and the operations of Representation State
+Transfer (REST) as **function calls** on resources.
 
-It maps *REST concepts* like resources, HTTP verbs, content-types and
-URI queries to *Common Lisp concepts* like generic functions,
-lambda-lists and and argument specializers.
+It maps *HTTP concepts* like resources, HTTP verbs, content-types, URI
+queries, and status codes to *Common Lisp concepts* like generic
+functions, specialized-lambda-lists, and conditions.
+
+It relieves the programmer of:
+
+* Manually dispatching on HTTP methods and content-types;
+
+* Parsing the URI to find arguments;
+
+* Writing checks for common situations 400-like situations like
+missing resources, content-types mismatch;
+
+There are other such systems for Common Lisp, but they tend to make
+you learn extra route-definition syntax.
+
+But in _Snooze_ `defroute` is very close to (and completely compatible
+with) `defmethod`. In fact you can even use `defmethod` if you prefer.
 
 So, for example, `GET`ting the list of the Beatles in JSON format by
 order of most guitars owned is asking for the URI
@@ -47,11 +58,21 @@ function:
   (jsonify (sort #'> (all-the-beatles) :key sort-by)))
 ```
 
+This is the same as writing:
+
+```lisp
+(cl:defmethod beatles ((v snooze-verbs:get) (c snooze-types:application/json) &key (sort-by #'age))
+  (jsonify (sort #'> (all-the-beatles) :key sort-by)))
+
+```
+
 Content-type matching is automatically taken care of: only
 `application/json`-accepting requests are accepted by this
 snippet. Argument parsing in the URI, including `?param=value` and
 `#fragment` bits is also automatically handled (but can be customized
 if you don't like the default).
+
+
 
 Because it's all done with CLOS, every route is a method, so you can.
 
@@ -112,8 +133,7 @@ now create some Lisp file with
 (snooze:defroute todos (:get "text/plain")
   (format nil "~{~a~^~%~}" (mapcar #'todo-task *todos*)))
 
-(snooze:start (make-instance 'snooze:snooze-server
-                             :port 4242 :route-packages '(:snooze-demo)))
+(clack:clackup (make-clack-app) :port 9003)
 ```
 
 And connect to "http://localhost:4242/todos" to see a list of
@@ -132,7 +152,7 @@ Here's the method that updates a `todo`'s data using a PUT request
 ```lisp
 (snooze:defroute todo (:put (payload "text/plain") id)
   (let ((todo (find-todo-or-lose id)))
-    (setf (todo-task todo) (snooze:request-body))))
+    (setf (todo-task todo) (request-payload))))
 ```
 
 To make the route accept JSON content:
@@ -140,7 +160,7 @@ To make the route accept JSON content:
 ```lisp
 (snooze:defroute todo (:put (payload "application/json") id)
   (let ((todo (find-todo-or-lose id)))
-    (setf (todo-task todo) (snooze:request-body))))
+    (setf (todo-task todo) (request-payload))))
 ```
 
 It could also be just
@@ -159,7 +179,7 @@ To accept only text-based content. `call-next-method` works as
 normally so you can reuse behaviour between routes. If a route fails
 to match (because the client's `Accepts:` header was too restrictive
 or because its `Content-type:` is unsupported by the server), no
-routes are applicable and the client gets a 404.
+routes are applicable and the client gets a 406.
 
 More tricks
 -----------
