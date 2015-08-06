@@ -121,7 +121,8 @@ otherwise leaves it uncoverted in string form."))
                              (method :get)
                              (accept "*/*")
                              (content-type "application/x-www-form-urlencoded"))
-  "Handles a HTTP request for URI.
+  "Dispatches an HTTP request for URI to the appropriate resource.
+
 METHOD a keyword, string or symbol designating the HTTP method (or
 \"verb\"). ACCEPT is a string in the format of the \"Accept:\"
 header. IN-CONTENT-TYPE is a string in the format of the
@@ -134,19 +135,30 @@ be used by the application to craft a response to the request."
 (defvar *clack-request-env*
   "Bound in function made by MAKE-CLACK-APP to Clack environment.")
 
-(defun make-clack-app ()
-  "Make a basic CLACK app that calls HANDLE-REQUEST.
-Binds *CLACK-REQUEST-ENV* so you can access the original request from
-routes and/or EXPLAIN-CONDITIONS"
+(defun make-clack-app (&optional bindings)
+  "Make a basic Clack app that calls HANDLE-REQUEST.
+
+Dynamically binds *CLACK-REQUEST-ENV* around every call to
+HANDLE-REQUEST so you can access the backend-specific from routes
+and/or EXPLAIN-CONDITION.
+
+BINDINGS is an alist of (SYMBOL . VALUE) which is are also
+dynamically-bound around HANDLE-REQUEST. You can use it to pass values
+of special variables that affect Snooze, like *HOME-RESOURCE*,
+*RESOURCES-FUNCTION*, *RESOURCE-NAME-FUNCTION*, or
+*URI-CONTENT-TYPES-FUNCTION*."
   (lambda (env) (let ((*clack-request-env* env))
-                  (multiple-value-bind (status-code payload payload-ct)
-                      (handle-request (getf env :request-uri)
-                             :method (getf env :request-method)
-                             :accept (gethash "accept" (getf env :headers))
-                             :content-type (getf env :content-type))
-                    `(,status-code
-                      (:content-type ,payload-ct)
-                      (,payload))))))
+                  (progv
+                      (mapcar #'car bindings)
+                      (mapcar #'cdr bindings)
+                    (multiple-value-bind (status-code payload payload-ct)
+                        (handle-request (getf env :request-uri)
+                                        :method (getf env :request-method)
+                                        :accept (gethash "accept" (getf env :headers))
+                                        :content-type (getf env :content-type))
+                      `(,status-code
+                        (:content-type ,payload-ct)
+                        (,payload))))))))
 
 
 

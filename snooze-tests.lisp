@@ -44,6 +44,8 @@
 
 (defresource yo (verb content-type))
 
+(defresource yo.snooze (verb content-type))
+
 (in-package :snooze-tests)
 
 (deftest test-parse-uri ()
@@ -54,7 +56,8 @@
     (is (eq resource #'snooze-parse-uri-tests:bla)))
   
   (multiple-value-bind (resource pargs kwargs)
-      (let ((snooze:*resource-name-regexp* "/ignored/([^/]+)/"))
+      (let ((snooze:*resource-name-function*
+              (lambda (ignored resource &rest args) (declare (ignore ignored)) (values resource args))))
         (parse-resource "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"))
     (is (equal pargs '("ble" "bli")))
     (is (equal kwargs '(:FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
@@ -67,33 +70,33 @@
 
   ;; content-types in the extension
   ;;
-  (multiple-value-bind (resource pargs kwargs content-type)
+  (multiple-value-bind (resource pargs kwargs content-types)
       (parse-resource "/yo?foo=ok")
     (declare (ignore pargs))
     (is (equal kwargs '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
-    (is (eq content-type nil)))
+    (is (null content-types)))
   
-  (multiple-value-bind (resource pargs kwargs content-type)
+  (multiple-value-bind (resource pargs kwargs content-types)
       (parse-resource "/yo.css?foo=ok")
     (declare (ignore pargs))
     (is (equal kwargs '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
-    (is (eq content-type (find-class 'snooze-types:text/css))))
+    (is (member (find-class 'snooze-types:text/css) content-types)))
 
-  (multiple-value-bind (resource pargs kwargs content-type)
+  (multiple-value-bind (resource pargs kwargs content-types)
       (parse-resource "/yo/1.css?foo=ok")
     (is (equal pargs '("1")))
     (is (equal kwargs '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
-    (is (eq content-type (find-class 'snooze-types:text/css))))
+    (member (find-class 'snooze-types:text/css) content-types))
 
-  (multiple-value-bind (resource pargs kwargs content-type)
-      (parse-resource "/yo.unknownextension?foo=ok")
+  (multiple-value-bind (resource pargs kwargs content-types)
+      (parse-resource "/yo.snooze?foo=ok")
     (declare (ignore pargs))
     (is (equal kwargs '(:foo "ok")))
-    (is (eq resource #'snooze-parse-uri-tests:yo))
-    (is (not content-type)))
+    (is (eq resource #'snooze-parse-uri-tests::yo.snooze))
+    (is (null content-types)))
 
   (multiple-value-bind (resource pargs kwargs content-type)
       (parse-resource "/yo/arg.unknownextension?foo=ok")

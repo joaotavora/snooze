@@ -34,15 +34,17 @@
   (:use #:cl #:snooze-common)
   (:import-from #:snooze-common
                 #:*resource-name-function*
-                #:*all-resources*
-                #:*home-resource*)
+                #:*resources-function*
+                #:*home-resource*
+                #:*uri-content-types-function*)
   (:nicknames #:rip)
   (:export
    ;; server configuration
    ;;
-   #:*resource-name-regexp*
-   #:*all-resources*
+   #:*resource-name-function*
+   #:*resources-function*
    #:*home-resource*
+   #:*uri-content-types-function*
    ;; server control
    ;; 
    #:start
