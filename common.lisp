@@ -129,16 +129,19 @@
 (defun find-resource (designator &optional errorp)
   (cond ((or (stringp designator)
              (keywordp designator))
-         (find designator *all-resources* :key #'resource-name :test #'string-equal))
-        ((resource-p designator)
+         (find designator (funcall *resources-function*)
+               :key #'resource-name :test #'string-equal))
+        ((and (resource-p designator)
+              (find designator (funcall *resources-function*)))
          designator)
         ((and designator
               (symbolp designator)
               (fboundp designator)
-              (resource-p (symbol-function designator)))
+              (resource-p (symbol-function designator))
+              (find (symbol-function designator) (funcall *resources-function*)))
          (symbol-function designator))
         (errorp
-         (error "~a doesn't designate a RESOURCE" designator))))
+         (error "~a doesn't designate a known RESOURCE" designator))))
 
 (defmethod initialize-instance :after ((gf resource-generic-function) &rest args)
   (declare (ignore args))
@@ -300,77 +303,50 @@
       (ensure-atom (first thing))
       thing))
 
-(defun parse-args-in-uri (args-string query fragment)
-  (let* ((after-/ (mismatch "/" args-string))
-         (plain-args (and after-/
-                          (cl-ppcre:split "/" (subseq args-string after-/))))
-         (keyword-args (and query
+(defun parse-keywords-in-uri (query fragment)
+  (let* ((keyword-args (and query
                             (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
                                   for (key-name value) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
                                   when (and key-name value)
                                     append (list (intern (string-upcase key-name) :keyword)
                                                  value)))))
-    (values plain-args
-            (append keyword-args
+    (append keyword-args
                     (when fragment
-                      (list 'snooze:fragment fragment))))))
+                      (list 'snooze:fragment fragment)))))
 
-(defun parse-resource (uri-path)
-  "Parse URI-PATH for a resource and how it should be called.
+(defun parse-resource (uri)
+  "Parse URI for a resource and how it should be called.
 
-Honours of *RESOURCE-NAME-REGEXP*, *ALL-RESOURCES* and
-*HOME-RESOURCE*.
+Honours of *RESOURCE-NAME-FUNCTION*, *RESOURCES-FUNCTION*,
+*HOME-RESOURCE* and *URI-CONTENT-TYPES-FUNCTION*.
 
 Returns nil if the resource cannot be found, otherwise returns up to 4
 values: RESOURCE, PLAIN-ARGS, KEYWORD-ARGS and
-EXT-CONTENT-TYPE. RESOURCE is a generic function verifying RESOURCE-P.
-PLAIN-ARGS is a list of unconverted argument values that the
-user-agent wants to pass to the function before any keyword
+URI-CONTENT-TYPES. RESOURCE is a generic function verifying
+RESOURCE-P.  PLAIN-ARGS is a list of unconverted argument values that
+the user-agent wants to pass to the function before any keyword
 arguments. KEYWORD-ARGS is a plist of keys and unconverted argument
 values that user agent wants to pass to the function as keyword
-arguments. EXT-CONTENT-TYPE is a subclass of SNOOZE-TYPES:CONTENT
-discovered from the uri \"file extension\" bit."
+arguments. URI-CONTENT-TYPES is a list of subclasses of
+SNOOZE-TYPES:CONTENT discovered in URI-PATH by *URI-CONTENT-TYPES-FUNCTION*."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
   ;;
-  (let* ((uri (puri:parse-uri uri-path))
-         (script-name (puri:uri-path uri))
-         (match (multiple-value-list (cl-ppcre:scan *resource-name-regexp*
-                                                    script-name)))
-         (resource-name
-           (and (first match)
-                (apply #'subseq script-name
-                       (if (plusp (length (third match)))
-                           (list (aref (third match) 0) (aref (fourth match) 0))
-                           (list (first match) (second match))))))
-         (first-slash-resource
-           (find-resource resource-name))
-         (resource (if resource-name
-                       first-slash-resource
-                       (find-resource *home-resource*)))
-         (script-minus-resource (if first-slash-resource
-                                    (subseq script-name (second match))
-                                    script-name))
-         (extension-match (cl-ppcre:scan "\\.\\w+$" script-minus-resource))
-         (args-string (if extension-match
-                          (subseq script-minus-resource 0 extension-match)
-                          script-minus-resource))
-         (extension (if extension-match
-                        (subseq script-minus-resource (1+ extension-match))))
-         (content-type-class (and extension
-                                  (find-content-class
-                                   (gethash extension *mime-type-hash*))))
-         (plain-and-keyword-args (multiple-value-list
-                                  (parse-args-in-uri (if content-type-class
-                                                         args-string
-                                                         (if (zerop (length args-string))
-                                                             ""
-                                                             script-minus-resource))
-                                                     (puri:uri-query uri)
-                                                     (puri:uri-fragment uri)))))
-    (values resource
-            (first plain-and-keyword-args)
-            (second plain-and-keyword-args)
-            content-type-class)))
+  (let ((uri (puri:parse-uri uri)))
+    (multiple-value-bind (content-types stripped-uri-string)
+        (funcall *uri-content-types-function*
+                 (puri:render-uri uri nil))
+      (let* ((after-uri (or stripped-uri-string
+                            uri))
+             (uri (puri:parse-uri after-uri))
+             (parsed-path (puri:uri-parsed-path uri)))
+        (multiple-value-bind (resource-name plain-args)
+            (apply *resource-name-function* (cdr parsed-path))
+          (values (find-resource (or resource-name
+                                     *home-resource*))
+                  plain-args
+                  (parse-keywords-in-uri (puri:uri-query uri)
+                                         (puri:uri-fragment uri))
+                  (mapcar #'find-content-class content-types)))))))
 
 (defun content-classes-in-accept-string (string)
   (labels ((expand (class)
@@ -671,17 +647,15 @@ EXPLAIN-CONDITION.")
 
 (defun handle-request-1 (uri method accept content-type)
   (catch 'response
-    (let (*resource* plain-args keyword-args content-class-in-uri)
+    (let (*resource* plain-args keyword-args uri-content-classes)
       (brutally-explaining-conditions ()
-        (multiple-value-setq (*resource* plain-args keyword-args content-class-in-uri)
+        (multiple-value-setq (*resource* plain-args keyword-args uri-content-classes)
           (parse-resource (puri:parse-uri uri)))
         (let* ((verb (find-verb-or-lose method))
                (client-accepted-content-types
-                 `(,@(if (and content-class-in-uri
-                              *allow-extension-as-accept*)
-                         (list content-class-in-uri))
-                   ,@(or (content-classes-in-accept-string accept)
-                         (list (find-content-class 'snooze-types:text/plain))))))
+                 (or (append uri-content-classes
+                             (content-classes-in-accept-string accept))
+                     (list (find-content-class 'snooze-types:text/plain)))))
           (politely-explaining-conditions (client-accepted-content-types)
             (unless *resource*
               (error 'no-such-resource
@@ -700,8 +674,8 @@ EXPLAIN-CONDITION.")
                          (etypecase verb
                            (snooze-verbs:sending-verb client-accepted-content-types)
                            (snooze-verbs:receiving-verb
-                            (list (or (and content-class-in-uri
-                                           *allow-extension-as-accept*)
+                            (list (or (and uri-content-classes
+                                           (first uri-content-classes))
                                       (parse-content-type-header content-type)
                                       (error 'unsupported-content-type))))))
                        (matching-ct
@@ -729,6 +703,26 @@ EXPLAIN-CONDITION.")
                     (throw 'response (values code
                                              payload
                                              (content-class-name payload-ct)))))))))))))
+
+(defun default-resource-name (&rest uri-components)
+  "Default value for *RESOURCE-NAME-FUNCTION*, which see."
+  (values (first uri-components) (rest uri-components)))
+
+(defun search-for-extension-content-type (uri-path)
+  "Default value for *URI-CONTENT-TYPES-FUNCTION*, which see."
+  (multiple-value-bind (matchp groups)
+      (cl-ppcre:scan-to-strings "([^\\.]+)\\.(\\w+)(.*)" uri-path)
+    (let ((content-type-class (and matchp
+                                   (find-content-class
+                                    (gethash (aref groups 1) *mime-type-hash*)))))
+      (when content-type-class
+        (values
+         (list content-type-class)
+         (format nil "~a~a" (aref groups 0) (aref groups 2)))))))
+
+(defun all-defined-resources ()
+  "Default value for *RESOURCES-FUNCTION*, which see."
+  *all-resources*)
 
 (defmethod print-object ((c http-condition) s)
   (print-unreadable-object (c s :type t)

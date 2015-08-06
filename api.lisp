@@ -33,25 +33,62 @@ client in a format accepted by the user agent as indicated in the
 plain text explanation with a full Lisp backtrace indicating where the
 condition originated.")
 
-(defvar *all-resources* nil
-  "A list of all resource defined.
-Can be let bound to restrict searchs by HANDLE-REQUEST to a
-particular set of resources.")
+(defvar *resources-function* 'all-defined-resources
+  "Compute list of all resources to consider when handling requests.
 
-(defparameter *resource-name-regexp* "/([^/.]+)"
+Value is a function designator called with no arguments. This function
+should return a list of resources.
+
+The default value is ALL-DEFINED-RESOURCES, which returns a list of
+every resource defined so far by DEFRESOURCE and DEFROUTE.
+
+Can be let-bound to restrict searches by a particular server to a
+specific set of resources.")
+
+(defparameter *resource-name-function* 'default-resource-name
   "How to search for resource names in URI paths.
-Value is a string containing a regular expression. The first capturing
-group of this regular expression should capture the resource's
-name.")
+Value is a function designator called on every request with multiple arguments,
+one for each component of the request's URI path (not the query and
+fragment compoenents).  The function might be called with no arguments
+at all if the path is the root path.
+
+This function should return two values: a resource designator (a
+string, symbol or a resource) and a partial list of arguments to pass
+to the resource.  If the first value returned is nil, *HOME-RESOURCE*
+is used to lookup a suitable resource.
+
+The default value is DEFAULT-RESOURCE-NAME, which return the first
+component as the first value and the remaining components are the
+second value. This means that an the URI path \"foo/bar/baz\"
+designates the \"foo\" resource called with arguments \"bar\" and
+\"baz\".
+
+Can be let-bound to modify the URI scheme used by a particular
+server.")
 
 (defparameter *home-resource* :home
   "Default resource to serve when request's URI path is empty.
 Value is a resource designator: a string, a keyword, a symbol or
-generic function designating a resource in *ALL-RESOURCES*, probably
-created with DEFRESOURCE or DEFROUTE.
+generic function designating a resource as given by
+*ALL-RESOURCES*.
 
 A string or keyword value causes *ALL-RESOURCES* to be scanned by the
 resource's name.")
+
+(defparameter *uri-content-types-function* 'search-for-extension-content-type
+  "Compute list of content types encoded in URI paths.
+If the value is non-NIL, it must be a function of a single argument, a
+string. This function should return two values: a list of content-type
+designators and the rewritten URI path stripped of its
+content-designating componenets.
+
+The default value is SEARCH-FOR-EXTENSION-CONTENT-TYPE, which looks
+for the first filename extension in the URI path, returns a list of
+the suitable content-type as the first value and, as the second value,
+the URI path stripped of the extension.
+
+Can be let-bound to modify the URI scheme used by a particular
+server.")
 
 (defun http-condition (status-code
                        &optional (format-control nil format-control-supplied-p)
@@ -79,9 +116,6 @@ parameters and a plist of keyword arguments.
 
 The default method tries to convert every argument to a number,
 otherwise leaves it uncoverted in string form."))
-
-(defparameter *allow-extension-as-accept* t
-  "If non-NIL, filename extensions in URI path add to \"Accept:\"")
 
 (defun handle-request (uri &key
                              (method :get)

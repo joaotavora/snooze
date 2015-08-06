@@ -25,14 +25,15 @@
    #:destructive-p
    #:content-class-name
    ;;
-   #:*resource-name-regexp*
-   #:*all-resources*
-   #:*home-resource*))
+   #:*resource-name-function*
+   #:*resources-function*
+   #:*home-resource*
+   #:*uri-content-types-function*))
 
 (defpackage #:snooze
   (:use #:cl #:snooze-common)
   (:import-from #:snooze-common
-                #:*resource-name-regexp*
+                #:*resource-name-function*
                 #:*all-resources*
                 #:*home-resource*)
   (:nicknames #:rip)
