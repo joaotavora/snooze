@@ -78,17 +78,21 @@
 
 ;;; Hook it to Hunchentoot
 ;;;
-(defclass snooze-acceptor (hunchentoot:acceptor) ())
+(defclass snooze-acceptor (hunchentoot:acceptor)
+  ((snooze-bindings :initarg :snooze-bindings :initform nil :accessor snooze-bindings)))
 
 (defmethod hunchentoot:acceptor-dispatch-request ((acceptor snooze-acceptor) request)
   (multiple-value-bind (code payload payload-ct)
       (let (;; Optional, but we do all the error catching ourselves
             ;; 
             (hunchentoot:*catch-errors-p* nil))
-        (handle-request (hunchentoot:request-uri request)
-                        :accept (hunchentoot:header-in :accept request)
-                        :method (hunchentoot:request-method request)
-                        :content-type (hunchentoot:header-in :content-type request)))
+        (progv
+            (mapcar #'car (snooze-bindings acceptor))
+            (mapcar #'cdr (snooze-bindings acceptor))
+          (handle-request (hunchentoot:request-uri request)
+                          :accept (hunchentoot:header-in :accept request)
+                          :method (hunchentoot:request-method request)
+                          :content-type (hunchentoot:header-in :content-type request))))
     (setf (hunchentoot:return-code*) code
           (hunchentoot:content-type*) payload-ct)
     (or payload "")))

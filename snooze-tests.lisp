@@ -92,6 +92,14 @@
     (member (find-class 'snooze-types:text/css) content-types))
 
   (multiple-value-bind (resource pargs kwargs content-types)
+      (let ((snooze:*uri-content-types-function* nil))
+        (parse-resource "/yo/1.css?foo=ok"))
+    (is (equal pargs '("1")))
+    (is (equal kwargs '(:foo "ok")))
+    (is (eq resource #'snooze-parse-uri-tests:yo))
+    (member (find-class 'snooze-types:text/css) content-types))
+
+  (multiple-value-bind (resource pargs kwargs content-types)
       (parse-resource "/yo.snooze?foo=ok")
     (declare (ignore pargs))
     (is (equal kwargs '(:foo "ok")))

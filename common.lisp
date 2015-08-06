@@ -331,22 +331,25 @@ arguments. URI-CONTENT-TYPES is a list of subclasses of
 SNOOZE-TYPES:CONTENT discovered in URI-PATH by *URI-CONTENT-TYPES-FUNCTION*."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
   ;;
-  (let ((uri (puri:parse-uri uri)))
-    (multiple-value-bind (content-types stripped-uri-string)
+  (let ((uri (puri:parse-uri uri))
+        stripped-uri
+        uri-content-types)
+    (when *uri-content-types-function*
+      (multiple-value-setq (uri-content-types stripped-uri)
         (funcall *uri-content-types-function*
-                 (puri:render-uri uri nil))
-      (let* ((after-uri (or stripped-uri-string
-                            uri))
-             (uri (puri:parse-uri after-uri))
-             (parsed-path (puri:uri-parsed-path uri)))
-        (multiple-value-bind (resource-name plain-args)
-            (apply *resource-name-function* (cdr parsed-path))
-          (values (find-resource (or resource-name
-                                     *home-resource*))
-                  plain-args
-                  (parse-keywords-in-uri (puri:uri-query uri)
-                                         (puri:uri-fragment uri))
-                  (mapcar #'find-content-class content-types)))))))
+                 (puri:render-uri uri nil))))
+    (let* ((after-uri (or stripped-uri
+                          uri))
+           (uri (puri:parse-uri after-uri))
+           (parsed-path (puri:uri-parsed-path uri)))
+      (multiple-value-bind (resource-name plain-args)
+          (apply *resource-name-function* (cdr parsed-path))p
+        (values (find-resource (or resource-name
+                                   *home-resource*))
+                plain-args
+                (parse-keywords-in-uri (puri:uri-query uri)
+                                       (puri:uri-fragment uri))
+                (mapcar #'find-content-class uri-content-types))))))
 
 (defun content-classes-in-accept-string (string)
   (labels ((expand (class)
@@ -706,7 +709,8 @@ EXPLAIN-CONDITION.")
 
 (defun default-resource-name (&rest uri-components)
   "Default value for *RESOURCE-NAME-FUNCTION*, which see."
-  (values (first uri-components) (rest uri-components)))
+  (let ((res (first uri-components)))
+    (values (and (plusp (length res)) res) (rest uri-components))))
 
 (defun search-for-extension-content-type (uri-path)
   "Default value for *URI-CONTENT-TYPES-FUNCTION*, which see."
