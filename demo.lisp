@@ -100,8 +100,9 @@
 
 (defun start (&rest args &key (port 5000))
   (stop)
-  (setq *server* (apply #'hunchentoot:start (make-instance 'snooze-acceptor)
-                        :port port args)))
+  (setq *server* (hunchentoot:start
+                  (apply #'make-instance 'snooze-acceptor
+                         :port port args))))
 
 
 
