@@ -79,7 +79,7 @@
 ;;; Conditions
 ;;
 (defparameter *catch-http-conditions* t)
-(defparameter *catch-errors* t)
+(defparameter *catch-errors* nil)
 
 (define-condition http-condition (simple-condition)
   ((status-code :initarg :status-code :initform (error "Must supply a HTTP status code.")
@@ -250,6 +250,10 @@ out with NO-SUCH-ROUTE."
                     (format s "Start catching ~a automatically"
                             (if (typep condition 'http-condition)
                                 "HTTP conditions" "errors")))
+          :test (lambda (c)
+                  (if (typep condition 'http-condition)
+                      (not *catch-http-conditions*)
+                      (not *catch-errors*)))
           (if (typep condition 'http-condition)
               (setq *catch-http-conditions* t)
               (setq *catch-errors* t))
@@ -358,9 +362,29 @@ Honours *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*"
           (:content-type ,(content-class-name payload-ct))
           (,payload))))))
 
+(defclass snooze-acceptor (hunchentoot:acceptor)
+  ((extra-args :initform nil :accessor extra-args)))
 
+(defmethod initialize-instance :after ((obj snooze-acceptor) &rest args &key &allow-other-keys)
+  (setf (extra-args obj)
+        (loop for (k v) on args by #'cddr
+              when (member k '(:home-resource :resource-name-regexp :allow-extension-as-accept))
+                append (list k v))))
 
+(defmethod hunchentoot:acceptor-dispatch-request ((acceptor snooze-acceptor) request)
+  (multiple-value-bind (code payload payload-ct)
+      (apply #'handle-request (hunchentoot:request-uri request)
+             :accept (hunchentoot:header-in :accept request)
+             :method (hunchentoot:request-method request)
+             :content-type (hunchentoot:header-in :content-type request)
+             (extra-args acceptor))
+    (setf (hunchentoot:return-code*) code
+          (hunchentoot:content-type*) (content-class-name payload-ct))
+    (or payload "")))
 
+(defmethod hunchentoot:acceptor-status-message ((acceptor snooze-acceptor) code &key)
+  
+  nil)
 
 
 

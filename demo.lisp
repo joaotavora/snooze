@@ -28,10 +28,7 @@
           (:meta :name "viewport" :content "width=device-width, initial-scale=1")
           (:link :href "/snooze.css" :rel "stylesheet" :type "text/css")
           (:link :rel "stylesheet" :href "http://yui.yahooapis.com/pure/0.6.0/pure-min.css"))
-   (:body (yield))))
-
-(defroute home (:get "text/html")
-  (with-basic-page (s :title "Snooze demo")
+   (:body
     (:div :id "layout" :class "pure-g coiso"
           (:div :class "pure-u-1-3 pure-menu custom-restricted-width"
                 (:span :class "pure-menu-heading" "Snooze")
@@ -42,9 +39,20 @@
                                (:li :class "pure-menu-item"
                                     (:a :href "#" :class "pure-menu-link"
                                         (cl-who:fmt "item ~a" i)))))))
-          (:div :class "pure-u-1-3" (:p "Thirds"))
-          (:div :class "pure-u-1-3" (:p "Thirds")))))
+          (:div :class "pure-u-2-3"
+                (yield))))))
 
+(defroute home (:get "text/html")
+  (with-basic-page (s :title "Snooze demo")
+    (:p "Incredible home!")))
+
+(defmethod explain-condition ((c error) (ct snooze-types:text/html))
+  (with-basic-page (s :title "Snooze error")
+    (:p (:i (cl-who:fmt "An unexpected internal error has occured")))))
+
+(defmethod explain-condition ((c http-condition) (ct snooze-types:text/html))
+  (with-basic-page (s :title "Snooze error")
+    (:p (cl-who:fmt "ooops you have a ~a" (status-code c)))))
 
 (defroute snooze (:get "text/css")
   (cl-css:css

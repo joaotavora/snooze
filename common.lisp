@@ -391,10 +391,11 @@ discovered from the uri \"file extension\" bit."
   (handler-case
       ;; FIXME: evaluate this need for eval, for security reasons
       (let ((*read-eval* nil))
-        (eval `(apply (lambda ,(closer-mop:generic-function-lambda-list
+        (handler-bind ((warning #'muffle-warning))
+          (eval `(apply (lambda ,(closer-mop:generic-function-lambda-list
                                   resource)
-                        t)
-                        '(t t ,@args))))
+                          t)
+                        '(t t ,@args)))))
     (error () nil)))
 
 (defun parse-content-type-header (string)
