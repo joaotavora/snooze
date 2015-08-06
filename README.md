@@ -42,6 +42,8 @@ It relieves the programmer of:
 * Writing checks for common situations 400-like situations like
 missing resources, content-types mismatch;
 
+* Writing functions that generates compatible URI's for use in HTML.
+
 There are other such systems for Common Lisp, but they tend to make
 you learn extra route-definition syntax.
 
@@ -73,7 +75,6 @@ snippet. Argument parsing in the URI, including `?param=value` and
 if you don't like the default).
 
 
-
 Because it's all done with CLOS, every route is a method, so you can.
 
 * `cl:trace` it like a regular function
@@ -95,14 +96,6 @@ This assumes you're using a recent version of [quicklisp][quicklisp]
 (push "path/to/snoozes/parent/dir" quicklisp:*local-project-directories*)
 (ql:quickload :snooze)
 ```
-
-or alternatively, just use [asdf][asdf]
-
-```lisp
-(push "path/to/snoozes/dir" asdf:*central-registry*)
-(asdf:require-system :snooze)
-```
-
 now create some Lisp file with
 
 ```lisp
@@ -155,34 +148,76 @@ Here's the method that updates a `todo`'s data using a PUT request
     (setf (todo-task todo) (request-payload))))
 ```
 
-To make the route accept JSON content:
-
-```lisp
-(snooze:defroute todo (:put (payload "application/json") id)
-  (let ((todo (find-todo-or-lose id)))
-    (setf (todo-task todo) (request-payload))))
-```
-
-It could also be just
-
-```lisp
-(snooze:defroute todo (:put payload id)...)
-```
-
-To have the route accept any kind of content, or even
+To accept any kind of text, not just plain text, use `text/*` as a
+specializer.
 
 ```lisp
 (snooze:defroute todo (:put (payload "text/*") id)...)
 ```
 
-To accept only text-based content. `call-next-method` works as
-normally so you can reuse behaviour between routes. If a route fails
-to match (because the client's `Accepts:` header was too restrictive
-or because its `Content-type:` is unsupported by the server), no
-routes are applicable and the client gets a 406.
+You can still keep your specialized `text/plain`: it'll get called to
+handle plaintext specially, perhaps delegating to the more generic
+version using `call-next-method`.
 
-More tricks
------------
+Now to make the route accept JSON content:
+
+```lisp
+(snooze:defroute todo (:put (payload "application/json") id)
+  (let ((todo (find-todo-or-lose id)))
+    (setf (todo-task todo)
+          (cdr (assoc :task
+                      (json:decode-json-from-string
+                       (request-payload)))))))
+```
+
+There is a little bit of repetition there. Perhaps its better to find
+the `todo` by its `id` number just once.
+
+```lisp
+(snooze:defroute todo :around (verb payload id)
+  (call-next-method verb payload (find-todo-or-lose id)))
+
+(snooze:defroute todo (:put (payload "text/plain") todo)
+  (setf (task todo) (request-payload)))
+
+(snooze:defroute todo (:put (payload "application/json") todo)
+  (setf (task todo)
+        (cdr (assoc :task
+                    (json:decode-json-from-string
+                     (request-payload))))))
+```
+
+Tighter methods
+---------------
+
+If you don't like the `:around` trick, there's a tighter way to
+control how arguments get converted before being passed to routes,
+using `snooze:convert-arguments`
+
+```lisp
+(defmethod snooze:convert-arguments ((resource (eql #'todo)) plain-args keyword-args)
+  ;; first, use the default spec to convert any strings to numbers
+  ;; 
+  (multiple-value-setq (plain-args keyword-args) (call-next-method))
+  ;; now, convert the first number to an object, keep everything else untouched
+  ;; 
+  (values
+     (cons (find-todo-or-lose (first plain-args)) (rest plain-args))
+     keyword-args))
+
+(snooze:defroute todo (:put (payload "text/plain") (x todo))
+  (setf (task x) (request-payload)))
+
+(snooze:defroute todo (:put (payload "application/json") (x todo))
+  (setf (task x)
+        (cdr (assoc :task
+                    (json:decode-json-from-string
+                     (request-payload))))))
+```
+
+
+More tricks and URI generation
+-----------------------------------
 
 Another trick is to coalesce all the `defroute` definitions into a
 single `defresource` definitions, much like `defmethod` can be in a
@@ -190,7 +225,7 @@ single `defresource` definitions, much like `defmethod` can be in a
 
 ```lisp
 (snooze:defresource todo (verb content-type id)
-  (:genpath todo-url)
+  (:genpath todo-path)
   (:route (:get "text/*" id)
           (todo-task (find-todo-or-lose id)))
   (:route (:get "text/html" id)
@@ -209,21 +244,18 @@ your view code:
 ```
 SNOOZE-DEMO> (todo-url 3)
 "todo/3"
-SNOOZE-DEMO> (todo-url 3 :protocol "https" :host "localhost")
-"https://localhost/todo/3"
 ```
 
-What happens if I add &optional or &key?
-----------------------------------------
+Fancier URI generation
+----------------------
 
-That's a very good question, and thanks for asking :grin:. They're
-allowed, of course, and their values deduced from URI parameters.
-
-Confusing? Consider a route that lets you filter the `todo` items:
+If you add `&key` and `&optional` arguments to the route, not only are
+they used when dispatching for routes, but can be used to generate
+URI.Consider a route that lets you filter the `todo` items:
 
 ```
 (snooze:defresource todos (verb content-type &key from to substring)
-  (:genpath todos-url)
+  (:genpath todos-path)
   (:route (:get "text/plain" &key from to substring)
           (format
            nil "~{~a~^~%~}"
@@ -239,14 +271,14 @@ Confusing? Consider a route that lets you filter the `todo` items:
                                   *todos*)))))
 ```
 
-The function that you get for free is now `todos-url` and does this:
+The function that you get for free is now `todos-path` and does this:
 
 ```
-SNOOZE-DEMO> (todos-url :from 3 :to 6 :substring "d")
+SNOOZE-DEMO> (todos-path :from 3 :to 6 :substring "d")
 "todos/?from=3&to=6&substring=d"
-SNOOZE-DEMO> (todos-url :from 3)
+SNOOZE-DEMO> (todos-path :from 3)
 "todos/?from=3"
-SNOOZE-DEMO> (todos-url)
+SNOOZE-DEMO> (todos-path)
 "todos/"
 ```
 

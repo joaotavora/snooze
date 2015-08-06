@@ -66,13 +66,19 @@ resource's name.")
 (defgeneric explain-condition (condition resource content-type )
   (:documentation "Explain CONDITION for RESOURCE in CONTENT-TYPE."))
 
-(defgeneric convert-arguments (resource plain-arguments keyword-arguments)
+(defgeneric convert-arguments (resource plain-args keyword-args)
   (:documentation
-   "In the context of SERVER, make ACTUAL-ARGUMENTS fit RESOURCE.
-Should return a list of the same length as ACTUAL-ARGUMENTS, which is
-a list of strings, but where some strings have been converted to other
-types.  The default method tries to convert every argument to a
-number, otherwise leaves it uncoverted in string form."))
+   "Massage PLAIN-ARGS and KEYWORD-ARGS fit RESOURCE.
+PLAIN-ARGS and KEYWORD-ARGS are extracted from the request URI path.
+Every element of PLAIN-ARGS is a strings, as are the even numbered
+elements of KEYWORD-ARGS. The odd-numbered values of of KEYWORD-ARGS
+are the symbols of the keyword arguments defined in RESOURCE.
+
+Should return two values: a list of values for plain, non-keyword
+parameters and a plist of keyword arguments.
+
+The default method tries to convert every argument to a number,
+otherwise leaves it uncoverted in string form."))
 
 (defparameter *allow-extension-as-accept* t
   "If non-NIL, filename extensions in URI path add to \"Accept:\"")

@@ -495,6 +495,8 @@ discovered from the uri \"file extension\" bit."
           (with-output-to-string (s)
             (uiop/image:print-condition-backtrace condition :stream s))))
 
+(defmethod explain-condition (condition resource (content-type snooze-types:text/plain))
+  (explain-condition condition resource 'failsafe))
 
 (define-condition http-condition (simple-condition)
   ((status-code :initarg :status-code :initform (error "Must supply a HTTP status code.")
@@ -537,7 +539,7 @@ discovered from the uri \"file extension\" bit."
                  (ignore-errors
                   (read-from-string value)))
                value)))
-    (append
+    (values
      (mapcar #'probe plain-arguments)
      (loop for (key value) on keyword-arguments by #'cddr
            collect key
@@ -685,48 +687,48 @@ EXPLAIN-CONDITION.")
               (error 'no-such-resource
                      :format-control
                      "So sorry, but that URI doesn't match any REST resources"))
-            (let ((converted-arguments (convert-arguments *resource* plain-args keyword-args)))
-              (unless (arglist-compatible-p *resource* converted-arguments)
-                (error 'invalid-resource-arguments
-                       :format-control
-                       "Too many, too few, or unsupported query arguments for REST resource ~a"
-                       :format-arguments
-                       (list *resource*)))
-              (let* ((content-types-to-try
-                       (etypecase verb
-                         (snooze-verbs:sending-verb client-accepted-content-types)
-                         (snooze-verbs:receiving-verb
-                          (list (or (and content-class-in-uri
-                                         *allow-extension-as-accept*)
-                                    (parse-content-type-header content-type)
-                                    (error 'unsupported-content-type))))))
-                     (matching-ct
-                       (matching-content-type-or-lose *resource*
-                                                      verb
-                                                      converted-arguments
-                                                      content-types-to-try)))
-                (multiple-value-bind (payload code payload-ct)
-                    (apply *resource* verb matching-ct converted-arguments)
-                  (unless code
-                    (setq code (if payload
-                                   200 ; OK
-                                   204 ; OK, no content
-                                   )))
-                  (cond (payload-ct
-                         (when (and (destructive-p verb)
-                                    (not (typep payload-ct (class-of matching-ct))))
-                           (warn "Route declared ~a as a its payload content-type, but it matched ~a"
-                                 payload-ct matching-ct)))
-                        (t
-                         (setq payload-ct
-                               (if (destructive-p verb)
-                                   'snooze-types:text/html ; the default
-                                   matching-ct))))
-                  (throw 'response (values code
-                                           payload
-                                           (content-class-name payload-ct))))))))))))
-
-
+            (multiple-value-bind (converted-plain-args converted-keyword-args)
+                (convert-arguments *resource* plain-args keyword-args)
+              (let ((converted-arguments (append converted-plain-args converted-keyword-args)))
+                (unless (arglist-compatible-p *resource* converted-arguments)
+                  (error 'invalid-resource-arguments
+                         :format-control
+                         "Too many, too few, or unsupported query arguments for REST resource ~a"
+                         :format-arguments
+                         (list *resource*)))
+                (let* ((content-types-to-try
+                         (etypecase verb
+                           (snooze-verbs:sending-verb client-accepted-content-types)
+                           (snooze-verbs:receiving-verb
+                            (list (or (and content-class-in-uri
+                                           *allow-extension-as-accept*)
+                                      (parse-content-type-header content-type)
+                                      (error 'unsupported-content-type))))))
+                       (matching-ct
+                         (matching-content-type-or-lose *resource*
+                                                        verb
+                                                        converted-arguments
+                                                        content-types-to-try)))
+                  (multiple-value-bind (payload code payload-ct)
+                      (apply *resource* verb matching-ct converted-arguments)
+                    (unless code
+                      (setq code (if payload
+                                     200 ; OK
+                                     204 ; OK, no content
+                                     )))
+                    (cond (payload-ct
+                           (when (and (destructive-p verb)
+                                      (not (typep payload-ct (class-of matching-ct))))
+                             (warn "Route declared ~a as a its payload content-type, but it matched ~a"
+                                   payload-ct matching-ct)))
+                          (t
+                           (setq payload-ct
+                                 (if (destructive-p verb)
+                                     'snooze-types:text/html ; the default
+                                     matching-ct))))
+                    (throw 'response (values code
+                                             payload
+                                             (content-class-name payload-ct)))))))))))))
 
 (defmethod print-object ((c http-condition) s)
   (print-unreadable-object (c s :type t)
