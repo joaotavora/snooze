@@ -236,25 +236,21 @@
 
 ;;; Genpath section
 ;;; 
-(fiasco:define-test-package :snooze-demo-fancy
-  (:use :cl :snooze))
-(in-package :snooze-demo-fancy)
-
-(defresource book (verb content-type file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
-  (:genpath book-url)
+(defresource book-resource (verb content-type file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
+  (:genpath book-resource-path)
   (:route :around (:get "text/plain" file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
           (declare (ignore file user coiso tal fornix yo))))
 
-(deftest genpath-madness ()
-  (is (string= (book-url "yo" "yeah" nil nil)
-               "book/yo/yeah?yo=yobla"))
-  (signals error (book-url "yo" "yeah" nil "AHA"))
-  (is (string= (book-url "yo" "yeah" "OK" nil)
-               "book/yo/yeah/OK?yo=yobla"))
-  (is (string= (book-url "yo" "yeah" "OK" nil :yo "mama" :fornix nil)
-               "book/yo/yeah/OK?yo=mama"))
-  (is (string= (book-url "yo" "yeah") "book/yo/yeah/coiso/bla?yo=yobla"))
-  (is (string= (book-url "yo with a space" "yeah") "book/yo with a space/yeah/coiso/bla?yo=yobla")))
+(deftest path-generation ()
+  (is (string= (book-resource-path "yo" "yeah" nil nil)
+               "book-resource/yo/yeah?yo=yobla"))
+  (signals error (book-resource-path "yo" "yeah" nil "AHA"))
+  (is (string= (book-resource-path "yo" "yeah" "OK" nil)
+               "book-resource/yo/yeah/OK?yo=yobla"))
+  (is (string= (book-resource-path "yo" "yeah" "OK" nil :yo "mama" :fornix nil)
+               "book-resource/yo/yeah/OK?yo=mama"))
+  (is (string= (book-resource-path "yo" "yeah") "book-resource/yo/yeah/coiso/bla?yo=yobla"))
+  (is (string= (book-resource-path "yo with a space" "yeah") "book-resource/yo with a space/yeah/coiso/bla?yo=yobla")))
 
 
 
