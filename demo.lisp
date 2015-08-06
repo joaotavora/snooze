@@ -1,4 +1,7 @@
-(defpackage #:snooze-demo (:use #:cl #:snooze))
+(defpackage #:snooze-demo (:use #:cl #:snooze)
+            (:export
+             #:stop
+             #:start))
 (in-package #:snooze-demo)
 
 (defmacro deftemplate (name (&rest lambda-list-args) &body who-args)
@@ -47,6 +50,10 @@
   (with-basic-page (s :title "Snooze demo")
     (:p "Incredible home!")))
 
+(defroute home (:get "text/html")
+  (with-basic-page (s :title "Snooze demo")
+    (:p "Incredible home!")))
+
 (defmethod explain-condition ((c error) resource (ct snooze-types:text/html))
   (declare (ignore resource))
   (with-basic-page (s :title "Snooze error")
@@ -71,28 +78,33 @@
 
 ;;; Hook it to Hunchentoot
 ;;;
-(defclass snooze-acceptor (hunchentoot:acceptor)
-  ((extra-args :initform nil :accessor extra-args)))
-
-(defmethod initialize-instance :after ((obj snooze-acceptor) &rest args &key &allow-other-keys)
-  (setf (extra-args obj)
-        (loop for (k v) on args by #'cddr
-              when (member k '(:home-resource :resource-name-regexp :allow-extension-as-accept))
-                append (list k v))))
+(defclass snooze-acceptor (hunchentoot:acceptor) ())
 
 (defmethod hunchentoot:acceptor-dispatch-request ((acceptor snooze-acceptor) request)
   (multiple-value-bind (code payload payload-ct)
-      (apply #'handle-request (hunchentoot:request-uri request)
-             :accept (hunchentoot:header-in :accept request)
-             :method (hunchentoot:request-method request)
-             :content-type (hunchentoot:header-in :content-type request)
-             (extra-args acceptor))
+      (let (;; Optional, but we do all the error catching ourselves
+            ;; 
+            (hunchentoot:*catch-errors-p* nil))
+        (handle-request (hunchentoot:request-uri request)
+                        :accept (hunchentoot:header-in :accept request)
+                        :method (hunchentoot:request-method request)
+                        :content-type (hunchentoot:header-in :content-type request)))
     (setf (hunchentoot:return-code*) code
           (hunchentoot:content-type*) payload-ct)
     (or payload "")))
 
-(defmethod hunchentoot:acceptor-status-message ((acceptor snooze-acceptor) code &key)
-  nil)
+(defvar *server* nil)
+
+(defun stop ()
+  (when *server* (hunchentoot:stop *server*) (setq *server* nil)))
+
+(defun start (&rest args &key (port 5000))
+  (stop)
+  (setq *server* (apply #'hunchentoot:start (make-instance 'snooze-acceptor)
+                        :port port args)))
+
+
+
 
 
 

@@ -126,20 +126,19 @@
 (defun resource-name (resource)
   (string (closer-mop:generic-function-name resource)))
 
-(defun find-resource (designator)
-  "Find the RESOURCE of DESIGNATOR (a symbol or a function)"
-  (let ((function (cond ((symbolp designator)
-                         (and (fboundp designator)
-                              (symbol-function designator)))
-                        ((functionp designator)
-                         designator)
-                        (t
-                         (error "~a is an invalid arg to FIND-RESOURCE" designator)))))
-    (when (resource-p function) function)))
-
-(defvar *all-resources* nil)
-(defparameter *resource-name-regexp*      "/([^/.]+)")
-(defparameter *home-resource*             "root")
+(defun find-resource (designator &optional errorp)
+  (cond ((or (stringp designator)
+             (keywordp designator))
+         (find designator *all-resources* :key #'resource-name :test #'string-equal))
+        ((resource-p designator)
+         designator)
+        ((and designator
+              (symbolp designator)
+              (fboundp designator)
+              (resource-p (symbol-function designator)))
+         (symbol-function designator))
+        (errorp
+         (error "~a doesn't designate a RESOURCE" designator))))
 
 (defmethod initialize-instance :after ((gf resource-generic-function) &rest args)
   (declare (ignore args))
@@ -316,17 +315,6 @@
                     (when fragment
                       (list 'snooze:fragment fragment))))))
 
-(defun find-resource-or-lose (designator)
-  (cond ((stringp designator)
-         (find designator *all-resources* :key #'resource-name :test #'string-equal))
-        ((resource-p designator)
-         designator)
-        ((and (symbolp designator)
-              (resource-p (symbol-function designator)))
-         (symbol-function designator))
-        (t
-         (error "~a doesn't designate a RESOURCE" designator))))
-
 (defun parse-resource (uri-path)
   "Parse URI-PATH for a resource and how it should be called.
 
@@ -355,10 +343,10 @@ discovered from the uri \"file extension\" bit."
                            (list (aref (third match) 0) (aref (fourth match) 0))
                            (list (first match) (second match))))))
          (first-slash-resource
-           (find-resource-or-lose resource-name))
+           (find-resource resource-name))
          (resource (if resource-name
                        first-slash-resource
-                       (find-resource-or-lose *home-resource*)))
+                       (find-resource *home-resource*)))
          (script-minus-resource (if first-slash-resource
                                     (subseq script-name (second match))
                                     script-name))
@@ -424,4 +412,322 @@ discovered from the uri \"file extension\" bit."
       (nth ct-arg-pos (closer-mop:method-specializers (first applicable))))))
 
 
+
+;;; Internal symbols of :SNOOZE
+;;;
+(in-package :snooze)
 
+(defun defroute-1 (name args)
+  (let* (;; find the qualifiers and lambda list
+         ;; 
+         (first-parse
+           (multiple-value-list
+            (parse-defroute-args args)))
+         (qualifiers (first first-parse))
+         (lambda-list (second first-parse))
+         (body (third first-parse))
+         ;; now parse body
+         ;; 
+         (parsed-body (multiple-value-list (alexandria:parse-body body)))
+         (remaining (first parsed-body))
+         (declarations (second parsed-body))
+         (docstring (third parsed-body))
+         ;; Add syntactic sugar for the first two specializers in the
+         ;; lambda list
+         ;; 
+         (verb-spec (verb-spec-or-lose (first lambda-list)))
+         (type-spec (content-type-spec-or-lose (second lambda-list) (second verb-spec)))
+         (proper-lambda-list
+           `(,verb-spec ,type-spec ,@(nthcdr 2 lambda-list)))
+         (simplified-lambda-list
+           (mapcar #'ensure-atom proper-lambda-list)))
+    `(progn
+       (unless (find-resource ',name)
+         (defresource ,name ,simplified-lambda-list))
+       (defmethod ,name ,@qualifiers
+         ,proper-lambda-list
+         ,@(if docstring `(,docstring))
+         ,@declarations
+         ,@remaining))))
+
+(defun defresource-1 (name lambda-list options)
+  (let* ((genpath-form)
+         (defgeneric-args
+           (loop for option in options
+                 for routep = (eq :route (car option))
+                 for (qualifiers spec-list body)
+                   = (and routep
+                          (multiple-value-list
+                           (parse-defroute-args (cdr option))))
+                 for verb-spec = (and routep
+                                      (verb-spec-or-lose (first spec-list)))
+                 for type-spec = (and routep
+                                      (content-type-spec-or-lose (second spec-list)
+                                                                 (second verb-spec)))
+                 
+                 if routep
+                   collect `(:method
+                              ,@qualifiers
+                              (,verb-spec ,type-spec ,@(nthcdr 2 spec-list))
+                              ,@body)
+                 else if (eq :genpath (car option))
+                        do (setq genpath-form
+                                 (make-genpath-form (second option) name
+                                                    (nthcdr 2 lambda-list)))
+                 else
+                   collect option))
+         (simplified-lambda-list (mapcar #'(lambda (argspec)
+                                             (ensure-atom argspec))
+                                         lambda-list)))
+    `(progn
+       ,@(if genpath-form `(,genpath-form))
+       (defgeneric ,name ,simplified-lambda-list
+         (:generic-function-class resource-generic-function)
+         ,@defgeneric-args))))
+
+(defmethod explain-condition (condition resource (content-type (eql 'failsafe)))
+  (declare (ignore resource))
+  (format nil "~a" condition))
+
+(defmethod explain-condition (condition resource (content-type (eql 'full-backtrace)))
+  (declare (ignore resource))
+  (format nil "Your SNOOZE was bitten by:~&~a"
+          (with-output-to-string (s)
+            (uiop/image:print-condition-backtrace condition :stream s))))
+
+
+(define-condition http-condition (simple-condition)
+  ((status-code :initarg :status-code :initform (error "Must supply a HTTP status code.")
+                :reader status-code))
+  (:default-initargs :format-control "HTTP condition"))
+
+(define-condition http-error (http-condition simple-error) ()
+  (:default-initargs
+   :format-control "HTTP Internal Server Error"
+   :status-code 500))
+
+(define-condition no-such-resource (http-condition) ()
+  (:default-initargs
+   :status-code 404
+   :format-control "Resource does not exist"))
+
+(define-condition invalid-resource-arguments (http-condition) ()
+  (:default-initargs
+   :status-code 400
+   :format-control "Resource exists but invalid arguments passed"))
+
+(define-condition  unsupported-content-type (http-error) ()
+  (:default-initargs
+   :status-code 501
+   :format-control "Resource exists but invalid arguments passed"))
+
+(define-condition no-such-route (http-condition) ()
+  (:default-initargs
+   :format-control "Resource exists but no such route"))
+
+
+(defmethod initialize-instance :after ((e http-error) &key)
+  (assert (<= 500 (status-code e) 599) nil
+          "An HTTP error must have a status code between 500 and 599"))
+
+(defmethod convert-arguments (resource plain-arguments keyword-arguments)
+  (declare (ignore resource))
+  (flet ((probe (value)
+           (or (let ((*read-eval* nil))
+                 (ignore-errors
+                  (read-from-string value)))
+               value)))
+    (append
+     (mapcar #'probe plain-arguments)
+     (loop for (key value) on keyword-arguments by #'cddr
+           collect key
+           collect (probe value)))))
+
+(defun matching-content-type-or-lose (resource verb args try-list)
+  "Check RESOURCE for route matching VERB, TRY-LIST and ARGS.
+TRY-LIST, a list of subclasses of SNOOZE-TYPES:CONTENT, is iterated.
+The first subclass for which RESOURCE has a matching specializer is
+used to create an instance, which is returned. If none is found error
+out with NO-SUCH-ROUTE."
+  (or (some (lambda (maybe)
+              (when (gf-primary-method-specializer
+                     resource
+                     (list* verb maybe args)
+                     1)
+                maybe))
+            (mapcar #'make-instance try-list))
+      (error 'no-such-route
+             :status-code (if (destructive-p verb)
+                              415 ; unsupported media type
+                              406 ; not acceptable
+                              ))))
+
+(defun call-brutally-explaining-conditions (fn)
+  (let (code condition)
+    (flet ((explain (how)
+             (throw 'response
+               (values code
+                       (explain-condition condition *resource* how)
+                       (content-class-name 'text/plain)))))
+      (restart-case (handler-bind ((error
+                                     (lambda (e)
+                                       (setq code 500 condition e)
+                                       (cond ((eq *catch-errors* :backtrace)
+                                              (invoke-restart 'explain-with-backtrace))
+                                             (*catch-errors*
+                                              (invoke-restart 'failsafe-explain)))))
+                                   (http-condition
+                                     (lambda (c)
+                                       (setq code (status-code c) condition c)
+                                       (cond ((eq *catch-http-conditions* :backtrace)
+                                              (invoke-restart 'explain-with-backtrace))))))
+                      (funcall fn))
+        (explain-with-backtrace () :report
+          (lambda (s) (format s "Explain ~a condition with full backtrace" code))
+          (explain 'full-backtrace))
+        (failsafe-explain () :report
+          (lambda (s) (format s "Explain ~a condition very succintly" code))
+          (explain 'failsafe))))))
+
+(defun call-politely-explaining-conditions (client-accepts fn)
+  (let (code
+        condition
+        accepted-type)
+    (labels ((accepted-type (condition)
+               (some (lambda (wanted)
+                       (when (gf-primary-method-specializer
+                              #'explain-condition
+                              (list condition *resource* wanted)
+                              1)
+                         wanted))
+                     (mapcar #'make-instance client-accepts)))
+             (explain ()
+               (throw 'response
+                 (values code
+                         (explain-condition condition *resource* accepted-type)
+                         (content-class-name accepted-type)))))
+      (restart-case 
+          (handler-bind ((condition
+                           (lambda (c)
+                             (setq condition c
+                                   accepted-type (accepted-type condition))
+                             (unless accepted-type
+                               (error "Cannot politely explain~%~a~%to client, who only accepts~%~a"
+                                      c client-accepts))))
+                         (http-condition
+                           (lambda (c)
+                             (setq code (status-code c))
+                             (when (and *catch-http-conditions*
+                                        (not (eq *catch-http-conditions* :backtrace)))
+                               (invoke-restart 'politely-explain))))
+                         (error
+                           (lambda (e)
+                             (declare (ignore e))
+                             (setq code 501)
+                             (when (and *catch-errors*
+                                        (not (eq *catch-errors* :backtrace)))
+                               (invoke-restart 'politely-explain)))))
+            (funcall fn))
+        (politely-explain ()
+          :report (lambda (s)
+                    (format s "Politely explain to client in ~a"
+                            accepted-type))
+          :test (lambda (c) (declare (ignore c)) accepted-type)
+          (explain))
+        (auto-catch ()
+          :report (lambda (s)
+                    (format s "Start catching ~a automatically"
+                            (if (typep condition 'http-condition)
+                                "HTTP conditions" "errors")))
+          :test (lambda (c)
+                  (if (typep c 'http-condition)
+                      (not *catch-http-conditions*)
+                      (not *catch-errors*)))
+          (if (typep condition 'http-condition)
+              (setq *catch-http-conditions* t)
+              (setq *catch-errors* t))
+          (if (find-restart 'politely-explain)
+              (explain)
+              (if (find-restart 'failsafe-explain)
+                  (invoke-restart 'failsafe-explain))))))))
+
+(defmacro brutally-explaining-conditions (() &body body)
+  "Explain conditions in BODY in a failsafe way.
+Honours the :BACKTRACE option to *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*."
+  `(call-brutally-explaining-conditions (lambda () ,@body)))
+
+(defmacro politely-explaining-conditions ((client-accepts) &body body)
+  "Explain conditions in BODY taking the client accepts into account.
+Honours *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*"
+  `(call-politely-explaining-conditions ,client-accepts (lambda () ,@body)))
+
+(defvar *resource*
+  "Bound early in HANDLE-REQUEST-1 to nil or to a RESOURCE.
+Used by POLITELY-EXPLAINING-CONDITIONS and
+BRUTALLY-EXPLAINING-CONDITIONS to pass a resource to
+EXPLAIN-CONDITION.")
+
+(defun handle-request-1 (uri method accept content-type)
+  (catch 'response
+    (let (*resource* plain-args keyword-args content-class-in-uri)
+      (brutally-explaining-conditions ()
+        (multiple-value-setq (*resource* plain-args keyword-args content-class-in-uri)
+          (parse-resource (puri:parse-uri uri)))
+        (let* ((verb (find-verb-or-lose method))
+               (client-accepted-content-types
+                 `(,@(if (and content-class-in-uri
+                              *allow-extension-as-accept*)
+                         (list content-class-in-uri))
+                   ,@(or (content-classes-in-accept-string accept)
+                         (list (find-content-class 'snooze-types:text/plain))))))
+          (politely-explaining-conditions (client-accepted-content-types)
+            (unless *resource*
+              (error 'no-such-resource
+                     :format-control
+                     "So sorry, but that URI doesn't match any REST resources"))
+            (let ((converted-arguments (convert-arguments *resource* plain-args keyword-args)))
+              (unless (arglist-compatible-p *resource* converted-arguments)
+                (error 'invalid-resource-arguments
+                       :format-control
+                       "Too many, too few, or unsupported query arguments for REST resource ~a"
+                       :format-arguments
+                       (list *resource*)))
+              (let* ((content-types-to-try
+                       (etypecase verb
+                         (snooze-verbs:sending-verb client-accepted-content-types)
+                         (snooze-verbs:receiving-verb
+                          (list (or (and content-class-in-uri
+                                         *allow-extension-as-accept*)
+                                    (parse-content-type-header content-type)
+                                    (error 'unsupported-content-type))))))
+                     (matching-ct
+                       (matching-content-type-or-lose *resource*
+                                                      verb
+                                                      converted-arguments
+                                                      content-types-to-try)))
+                (multiple-value-bind (payload code payload-ct)
+                    (apply *resource* verb matching-ct converted-arguments)
+                  (unless code
+                    (setq code (if payload
+                                   200 ; OK
+                                   204 ; OK, no content
+                                   )))
+                  (cond (payload-ct
+                         (when (and (destructive-p verb)
+                                    (not (typep payload-ct (class-of matching-ct))))
+                           (warn "Route declared ~a as a its payload content-type, but it matched ~a"
+                                 payload-ct matching-ct)))
+                        (t
+                         (setq payload-ct
+                               (if (destructive-p verb)
+                                   'snooze-types:text/html ; the default
+                                   matching-ct))))
+                  (throw 'response (values code
+                                           payload
+                                           (content-class-name payload-ct))))))))))))
+
+
+
+(defmethod print-object ((c http-condition) s)
+  (print-unreadable-object (c s :type t)
+    (format s "~a" (status-code c))))

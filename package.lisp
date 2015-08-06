@@ -13,7 +13,6 @@
    #:*mime-type-hash*
    #:resource-generic-function
    #:find-resource
-   #:*all-resources*
    #:find-verb-or-lose
    #:parse-content-type-header
    #:arglist-compatible-p
@@ -24,7 +23,11 @@
    #:debug
    #:debug-condition
    #:destructive-p
-   #:content-class-name))
+   #:content-class-name
+   ;;
+   #:*resource-name-regexp*
+   #:*all-resources*
+   #:*home-resource*))
 
 (defpackage #:snooze
   (:use #:cl #:snooze-common)
