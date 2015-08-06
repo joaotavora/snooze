@@ -24,20 +24,21 @@
    #:debug
    #:debug-condition
    #:destructive-p
-   #:content-class-name
-   #:all-resources))
+   #:content-class-name))
 
 (defpackage #:snooze
   (:use #:cl #:snooze-common)
+  (:import-from #:snooze-common
+                #:*resource-name-regexp*
+                #:*all-resources*
+                #:*home-resource*)
   (:nicknames #:rip)
   (:export
    ;; server configuration
-   ;; 
-   #:snooze-server
-   #:route-packages
-   #:resource-name-regexp
-   #:fall-through-p
-   #:home-resource
+   ;;
+   #:*resource-name-regexp*
+   #:*all-resources*
+   #:*home-resource*
    ;; server control
    ;; 
    #:start
@@ -65,11 +66,9 @@
    #:handle-request
    #:*catch-errors*
    #:*catch-http-conditions*
-   #:*respect-accept-on-conditions*
    ;; backend stuff
    ;; 
-   #:*backend*
-   #:*request*
+   #:*clack-request-env*
    #:make-clack-app))
 
 (defpackage :snooze-types (:use) (:export #:content))

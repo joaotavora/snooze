@@ -138,12 +138,12 @@
     (when (resource-p function) function)))
 
 (defvar *all-resources* nil)
+(defparameter *resource-name-regexp*      "/([^/.]+)")
+(defparameter *home-resource*             "root")
 
 (defmethod initialize-instance :after ((gf resource-generic-function) &rest args)
   (declare (ignore args))
   (pushnew gf *all-resources*))
-
-(defun all-resources () *all-resources*)
 
 (defun probe-class-sym (sym)
   "Like CL:FIND-CLASS but don't error and return SYM or nil"
@@ -180,7 +180,6 @@
            ;;
            (augmented-kwargs
              (loop for (kw-and-sym default) in kwargs
-                   for (nil sym) = kw-and-sym
                    collect `(,kw-and-sym ,default ,(gensym))))
            ;;
            ;;
@@ -317,17 +316,25 @@
                     (when fragment
                       (list 'snooze:fragment fragment))))))
 
-(defun parse-resource (uri-path
-                       &key
-                         (resource-name-regexp "/([^/.]+)")
-                         (resources (all-resources))
-                         (home-resource nil))
+(defun find-resource-or-lose (designator)
+  (cond ((stringp designator)
+         (find designator *all-resources* :key #'resource-name :test #'string-equal))
+        ((resource-p designator)
+         designator)
+        ((and (symbolp designator)
+              (resource-p (symbol-function designator)))
+         (symbol-function designator))
+        (t
+         (error "~a doesn't designate a RESOURCE" designator))))
+
+(defun parse-resource (uri-path)
   "Parse URI-PATH for a resource and how it should be called.
 
-See HANDLE-REQUEST for meaning of RESOURCE-NAME-REGEXP, RESOURCES and
-HOME-RESOURCE.
+Honours of *RESOURCE-NAME-REGEXP*, *ALL-RESOURCES* and
+*HOME-RESOURCE*.
 
-Return 4 values: RESOURCE, PLAIN-ARGS, KEYWORD-ARGS and
+Returns nil if the resource cannot be found, otherwise returns up to 4
+values: RESOURCE, PLAIN-ARGS, KEYWORD-ARGS and
 EXT-CONTENT-TYPE. RESOURCE is a generic function verifying RESOURCE-P.
 PLAIN-ARGS is a list of unconverted argument values that the
 user-agent wants to pass to the function before any keyword
@@ -339,7 +346,7 @@ discovered from the uri \"file extension\" bit."
   ;;
   (let* ((uri (puri:parse-uri uri-path))
          (script-name (puri:uri-path uri))
-         (match (multiple-value-list (cl-ppcre:scan resource-name-regexp
+         (match (multiple-value-list (cl-ppcre:scan *resource-name-regexp*
                                                     script-name)))
          (resource-name
            (and (first match)
@@ -348,10 +355,10 @@ discovered from the uri \"file extension\" bit."
                            (list (aref (third match) 0) (aref (fourth match) 0))
                            (list (first match) (second match))))))
          (first-slash-resource
-           (find resource-name resources :key #'resource-name :test #'string-equal))
+           (find-resource-or-lose resource-name))
          (resource (if resource-name
                        first-slash-resource
-                       home-resource))
+                       (find-resource-or-lose *home-resource*)))
          (script-minus-resource (if first-slash-resource
                                     (subseq script-name (second match))
                                     script-name))

@@ -2,25 +2,26 @@
 (in-package #:snooze-demo)
 
 (defmacro deftemplate (name (&rest lambda-list-args) &body who-args)
-  (let ((function-sym (gensym "FUNCTION-"))
-        (whots-var-sym (gensym "WHOTS-VAR-"))
-        (body-sym (gensym "BODY-")))
+  "A micro HTML-templating framework"
+  (alexandria:with-gensyms (body whots-stream function)
     `(progn
        (setf (get ',name 'deftemplate)
-             (lambda (,function-sym ,@lambda-list-args)
-               (macrolet ((yield () '(funcall ,function-sym ,whots-var-sym)))
-                 (cl-who:with-html-output-to-string (,whots-var-sym nil :indent t)
+             (lambda (,function ,@lambda-list-args)
+               (macrolet ((yield () '(funcall ,function ,whots-stream)))
+                 (cl-who:with-html-output-to-string (,whots-stream nil :indent t)
                    ,@who-args))))
 
-       (defmacro ,name ((stream &rest args ,@lambda-list-args) &body ,body-sym)
+       (defmacro ,name ((stream &rest args ,@lambda-list-args) &body ,body)
          (declare (ignore ,@(loop for sym in lambda-list-args
                                   unless (eq #\& (char (string sym) 0))
                                     collect sym)))
          `(apply (get ',',name 'deftemplate)
                  (lambda (,stream)
                    (cl-who:with-html-output (,stream nil :indent t)
-                     ,@,body-sym))
+                     ,@,body))
                  ,(cons 'list args))))))
+
+
 
 (deftemplate with-basic-page (&key title)
   (:html
@@ -46,11 +47,13 @@
   (with-basic-page (s :title "Snooze demo")
     (:p "Incredible home!")))
 
-(defmethod explain-condition ((c error) (ct snooze-types:text/html))
+(defmethod explain-condition ((c error) resource (ct snooze-types:text/html))
+  (declare (ignore resource))
   (with-basic-page (s :title "Snooze error")
     (:p (:i (cl-who:fmt "An unexpected internal error has occured")))))
 
-(defmethod explain-condition ((c http-condition) (ct snooze-types:text/html))
+(defmethod explain-condition ((c http-condition) resource (ct snooze-types:text/html))
+  (declare (ignore resource))
   (with-basic-page (s :title "Snooze error")
     (:p (cl-who:fmt "ooops you have a ~a" (status-code c)))))
 
@@ -61,6 +64,38 @@
       :font-family serif
       :float left)
      (.coiso
-      :height 100px))))
+      :height 100px)
+     (.pure-menu-item
+      :height auto))))
+
+
+;;; Hook it to Hunchentoot
+;;;
+(defclass snooze-acceptor (hunchentoot:acceptor)
+  ((extra-args :initform nil :accessor extra-args)))
+
+(defmethod initialize-instance :after ((obj snooze-acceptor) &rest args &key &allow-other-keys)
+  (setf (extra-args obj)
+        (loop for (k v) on args by #'cddr
+              when (member k '(:home-resource :resource-name-regexp :allow-extension-as-accept))
+                append (list k v))))
+
+(defmethod hunchentoot:acceptor-dispatch-request ((acceptor snooze-acceptor) request)
+  (multiple-value-bind (code payload payload-ct)
+      (apply #'handle-request (hunchentoot:request-uri request)
+             :accept (hunchentoot:header-in :accept request)
+             :method (hunchentoot:request-method request)
+             :content-type (hunchentoot:header-in :content-type request)
+             (extra-args acceptor))
+    (setf (hunchentoot:return-code*) code
+          (hunchentoot:content-type*) payload-ct)
+    (or payload "")))
+
+(defmethod hunchentoot:acceptor-status-message ((acceptor snooze-acceptor) code &key)
+  nil)
+
+
+
+
 
 

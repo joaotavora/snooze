@@ -125,13 +125,14 @@
   (:default-initargs
    :format-control "Resource exists but no such route"))
 
-(defgeneric explain-condition (condition content-type)
-  (:documentation "Explain CONDITION to client in CONTENT-TYPE.")
-  (:method (condition (content-type (eql 'failsafe)))
+(defgeneric explain-condition (condition resource content-type )
+  (:documentation "Explain CONDITION for RESOURCE in CONTENT-TYPE.")
+  (:method (condition resource (content-type (eql 'failsafe)))
+    (declare (ignore resource))
     (format nil "~a" condition))
-  (:method (condition (content-type (eql 'full-backtrace)))
-    (format nil "SNOOZE has this to report:~a~%Backtrace:~%~a"
-            condition
+  (:method (condition resource (content-type (eql 'full-backtrace)))
+    (declare (ignore resource))
+    (format nil "Your SNOOZE was bitten by:~&~a"
             (with-output-to-string (s)
               (uiop/image:print-condition-backtrace condition :stream s)))))
 
@@ -140,6 +141,7 @@
 ;;;
 (defgeneric convert-arguments (resource plain-arguments keyword-arguments)
   (:method (resource plain-arguments keyword-arguments)
+    (declare (ignore resource))
     (flet ((probe (value)
              (or (let ((*read-eval* nil))
                    (ignore-errors
@@ -156,6 +158,7 @@ Should return a list of the same length as ACTUAL-ARGUMENTS, which is
 a list of strings, but where some strings have been converted to other
 types.  The default method tries to convert every arguments to a
 number."))
+
 
 (defun matching-content-type-or-lose (resource verb args try-list)
   "Check RESOURCE for route matching VERB, TRY-LIST and ARGS.
@@ -181,7 +184,7 @@ out with NO-SUCH-ROUTE."
     (flet ((explain (how)
              (throw 'response
                (values code
-                       (explain-condition condition how)
+                       (explain-condition condition *resource* how)
                        'text/plain))))
       (restart-case (handler-bind ((error
                                      (lambda (e)
@@ -211,20 +214,23 @@ out with NO-SUCH-ROUTE."
                (some (lambda (wanted)
                        (when (gf-primary-method-specializer
                               #'explain-condition
-                              (list condition wanted)
+                              (list condition *resource* wanted)
                               1)
                          wanted))
                      (mapcar #'make-instance client-accepts)))
              (explain ()
                (throw 'response
                  (values code
-                         (explain-condition condition accepted-type)
+                         (explain-condition condition *resource* accepted-type)
                          accepted-type))))
       (restart-case 
           (handler-bind ((condition
                            (lambda (c)
                              (setq condition c
-                                   accepted-type (accepted-type condition))))
+                                   accepted-type (accepted-type condition))
+                             (unless accepted-type
+                               (error "Cannot politely explain~%~a~%to client, who only accepts~%~a"
+                                      c client-accepts))))
                          (http-condition
                            (lambda (c)
                              (setq code (status-code c))
@@ -251,7 +257,7 @@ out with NO-SUCH-ROUTE."
                             (if (typep condition 'http-condition)
                                 "HTTP conditions" "errors")))
           :test (lambda (c)
-                  (if (typep condition 'http-condition)
+                  (if (typep c 'http-condition)
                       (not *catch-http-conditions*)
                       (not *catch-errors*)))
           (if (typep condition 'http-condition)
@@ -272,60 +278,57 @@ Honours the :BACKTRACE option to *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*."
 Honours *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*"
   `(call-politely-explaining-conditions ,client-accepts (lambda () ,@body)))
 
+(defparameter *allow-extension-as-accept* t)
+
+(defvar *resource*
+  "Bound early in HANDLE-REQUEST to nil or to a RESOURCE.
+Used by POLITELY-EXPLAINING-CONDITIONS and
+BRUTALLY-EXPLAINING-CONDITIONS to pass a resource to
+EXPLAIN-CONDITION.")
 (defun handle-request (uri
                        &key
                          (method :get)
                          (accept "*/*")
-                         (content-type "application/x-www-form-urlencoded")
-                         (resources (all-resources) resources-provided-p)
-                         (home-resource nil home-resource-provided-p)
-                         (resource-name-regexp
-                          "/([^/.]+)" resource-name-regexp-provided-p)
-                         (allow-extension-as-accept t))
+                         (content-type "application/x-www-form-urlencoded"))
   (catch 'response
-    (brutally-explaining-conditions ()
-      (multiple-value-bind (resource pargs kwargs content-class-in-uri)
-          (apply #'parse-resource (puri:parse-uri uri)
-                 `(,@(if resource-name-regexp-provided-p
-                         `(:resource-name-regexp ,resource-name-regexp))
-                   ,@(if resources-provided-p
-                         `(:resources ,resources))
-                   ,@(if home-resource-provided-p
-                         `(:home-resource ,home-resource))))
+    (let (*resource* plain-args keyword-args content-class-in-uri)
+      (brutally-explaining-conditions ()
+        (multiple-value-setq (*resource* plain-args keyword-args content-class-in-uri)
+          (parse-resource (puri:parse-uri uri)))
         (let* ((verb (find-verb-or-lose method))
                (client-accepted-content-types
                  `(,@(if (and content-class-in-uri
-                              allow-extension-as-accept)
+                              *allow-extension-as-accept*)
                          (list content-class-in-uri))
                    ,@(or (content-classes-in-accept-string accept)
                          (list (find-content-class 'snooze-types:text/plain))))))
           (politely-explaining-conditions (client-accepted-content-types)
-            (unless resource
+            (unless *resource*
               (error 'no-such-resource
                      :format-control
                      "So sorry, but that URI doesn't match any REST resources"))
-            (let ((converted-arguments (convert-arguments resource pargs kwargs)))
-              (unless (arglist-compatible-p resource converted-arguments)
+            (let ((converted-arguments (convert-arguments *resource* plain-args keyword-args)))
+              (unless (arglist-compatible-p *resource* converted-arguments)
                 (error 'invalid-resource-arguments
                        :format-control
                        "Too many, too few, or unsupported query arguments for REST resource ~a"
                        :format-arguments
-                       (list resource)))
+                       (list *resource*)))
               (let* ((content-types-to-try
                        (etypecase verb
                          (snooze-verbs:sending-verb client-accepted-content-types)
                          (snooze-verbs:receiving-verb
                           (list (or (and content-class-in-uri
-                                         allow-extension-as-accept)
+                                         *allow-extension-as-accept*)
                                     (parse-content-type-header content-type)
                                     (error 'unsupported-content-type))))))
                      (matching-ct
-                       (matching-content-type-or-lose resource
+                       (matching-content-type-or-lose *resource*
                                                       verb
                                                       converted-arguments
                                                       content-types-to-try)))
                 (multiple-value-bind (payload code payload-ct)
-                    (apply resource verb matching-ct converted-arguments)
+                    (apply *resource* verb matching-ct converted-arguments)
                   (unless code
                     (setq code (if payload
                                    200 ; OK
@@ -343,15 +346,14 @@ Honours *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*"
                                    matching-ct))))
                   (throw 'response (values code
                                            payload
-                                           (find-content-class payload-ct))))))))))))
+                                           (content-class-name payload-ct))))))))))))
 
-(defvar *backend*)
-(defvar *request*)
 
+
+(defvar *clack-request-env*)
 (defun make-clack-app (&rest args)
   (lambda (env)
-    (let ((*backend* :clack)
-          (*request* env))
+    (let ((*clack-request-env* env))
       (multiple-value-bind (status-code payload payload-ct)
           (apply #'handle-request (getf env :request-uri)
                  :method (getf env :request-method)
@@ -359,32 +361,8 @@ Honours *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*"
                  :content-type (getf env :content-type)
                  args)
         `(,status-code
-          (:content-type ,(content-class-name payload-ct))
+          (:content-type ,payload-ct)
           (,payload))))))
-
-(defclass snooze-acceptor (hunchentoot:acceptor)
-  ((extra-args :initform nil :accessor extra-args)))
-
-(defmethod initialize-instance :after ((obj snooze-acceptor) &rest args &key &allow-other-keys)
-  (setf (extra-args obj)
-        (loop for (k v) on args by #'cddr
-              when (member k '(:home-resource :resource-name-regexp :allow-extension-as-accept))
-                append (list k v))))
-
-(defmethod hunchentoot:acceptor-dispatch-request ((acceptor snooze-acceptor) request)
-  (multiple-value-bind (code payload payload-ct)
-      (apply #'handle-request (hunchentoot:request-uri request)
-             :accept (hunchentoot:header-in :accept request)
-             :method (hunchentoot:request-method request)
-             :content-type (hunchentoot:header-in :content-type request)
-             (extra-args acceptor))
-    (setf (hunchentoot:return-code*) code
-          (hunchentoot:content-type*) (content-class-name payload-ct))
-    (or payload "")))
-
-(defmethod hunchentoot:acceptor-status-message ((acceptor snooze-acceptor) code &key)
-  
-  nil)
 
 
 
