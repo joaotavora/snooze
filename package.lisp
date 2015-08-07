@@ -12,7 +12,6 @@
    #:probe-class-sym
    #:*mime-type-hash*
    #:resource-generic-function
-   #:find-resource
    #:find-verb-or-lose
    #:parse-content-type-header
    #:arglist-compatible-p
@@ -25,10 +24,15 @@
    #:destructive-p
    #:content-class-name
    ;;
+   #:find-resource
+   #:delete-resource
+   ;;
    #:*resource-name-function*
    #:*resources-function*
    #:*home-resource*
-   #:*uri-content-types-function*))
+   #:*uri-content-types-function*
+   #:*all-resources*
+   ))
 
 (defpackage #:snooze
   (:use #:cl #:snooze-common)
@@ -36,7 +40,11 @@
                 #:*resource-name-function*
                 #:*resources-function*
                 #:*home-resource*
-                #:*uri-content-types-function*)
+                #:*uri-content-types-function*
+                ;;
+                #:find-resource
+                #:delete-resource
+                )
   (:nicknames #:rip)
   (:export
    ;; server configuration

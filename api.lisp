@@ -157,7 +157,7 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
                                         :content-type (getf env :content-type))
                       `(,status-code
                         (:content-type ,payload-ct)
-                        (,payload))))))))
+                        (,payload)))))))
 
 
 

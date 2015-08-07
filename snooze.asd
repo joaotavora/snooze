@@ -15,7 +15,7 @@
   :components ((:file "snooze-tests")))
 
 (asdf:defsystem :snooze-demo
-  :depends-on (#:snooze #:alexandria #:cl-who #:cl-css #:hunchentoot)
+  :depends-on (#:snooze #:alexandria #:cl-who #:cl-css #:hunchentoot #:cl-json)
   :serial t
   :components ((:file "demo")))
 

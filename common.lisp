@@ -126,22 +126,27 @@
 (defun resource-name (resource)
   (string (closer-mop:generic-function-name resource)))
 
+(defvar *all-resources* nil)
+
 (defun find-resource (designator &optional errorp)
   (cond ((or (stringp designator)
              (keywordp designator))
-         (find designator (funcall *resources-function*)
+         (find designator *all-resources*
                :key #'resource-name :test #'string-equal))
         ((and (resource-p designator)
-              (find designator (funcall *resources-function*)))
+              (find designator *all-resources*))
          designator)
         ((and designator
               (symbolp designator)
               (fboundp designator)
               (resource-p (symbol-function designator))
-              (find (symbol-function designator) (funcall *resources-function*)))
+              (find (symbol-function designator) *all-resources*))
          (symbol-function designator))
         (errorp
          (error "~a doesn't designate a known RESOURCE" designator))))
+
+(defun delete-resource (resource)
+  (setf *all-resources* (delete resource *all-resources*)))
 
 (defmethod initialize-instance :after ((gf resource-generic-function) &rest args)
   (declare (ignore args))
@@ -344,12 +349,13 @@ SNOOZE-TYPES:CONTENT discovered in URI-PATH by *URI-CONTENT-TYPES-FUNCTION*."
            (parsed-path (puri:uri-parsed-path uri)))
       (multiple-value-bind (resource-name plain-args)
           (apply *resource-name-function* (cdr parsed-path))
-        (values (find-resource (or resource-name
-                                   *home-resource*))
-                plain-args
-                (parse-keywords-in-uri (puri:uri-query uri)
-                                       (puri:uri-fragment uri))
-                (mapcar #'find-content-class uri-content-types))))))
+        (let ((*all-resources* (funcall *resources-function*)))
+          (values (find-resource (or resource-name
+                                     *home-resource*))
+                  plain-args
+                  (parse-keywords-in-uri (puri:uri-query uri)
+                                         (puri:uri-fragment uri))
+                  (mapcar #'find-content-class uri-content-types)))))))
 
 (defun content-classes-in-accept-string (string)
   (labels ((expand (class)
@@ -728,5 +734,5 @@ EXPLAIN-CONDITION.")
 
 (defun all-defined-resources ()
   "Default value for *RESOURCES-FUNCTION*, which see."
-  *all-resources*)
+  snooze-common:*all-resources*)
 
