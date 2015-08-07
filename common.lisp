@@ -255,6 +255,7 @@ remaining URI after these discoveries."
           (funcall *resource-name-function*
                    (quri:render-uri uri))
         (setq resource-name (and resource-name
+                                 (plusp (length resource-name))
                                  (ignore-errors
                                   (quri:url-decode resource-name))))
         (let ((*all-resources* (funcall *resources-function*)))
