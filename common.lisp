@@ -325,8 +325,11 @@
     (string (quri:uri maybe-uri))
     (quri:uri maybe-uri)))
 
-(defun parse-keywords-in-uri (query fragment)
-  (let* ((keyword-args (and query
+(defun parse-keywords-in-uri (uri)
+  (let* ((uri (ensure-uri uri))
+         (query (quri:uri-query uri))
+         (fragment (quri:uri-fragment uri))
+         (keyword-args (and query
                             (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
                                   for (undecoded-key-name undecoded-value-string) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
                                   when (and undecoded-key-name undecoded-value-string)
@@ -709,8 +712,7 @@ EXPLAIN-CONDITION.")
             ;;
             (handler-case
                 (setq decoded-plain-args (mapcar #'snooze-common::safe-decode undecoded-plain-args)
-                      decoded-keyword-args (parse-keywords-in-uri (quri:uri-query uri)
-                                                                  (quri:uri-fragment uri)))
+                      decoded-keyword-args (parse-keywords-in-uri uri))
                 (error (e)
                        (error 'invalid-resource-arguments
                               :format-control
