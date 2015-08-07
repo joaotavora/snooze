@@ -52,7 +52,7 @@
   (with-basic-page (s :title "Snooze demo")
     (:p "Incredible home!")))
 
-(defresource sym (verb ct name &key package)
+(defresource sym (verb ct symbol)
   (:genpath sym-path))
 
 (defun escaped-desc (sym stream)
@@ -61,14 +61,16 @@
            (with-output-to-string (s)
              (describe sym s)))))
 
-(defroute sym (:get "text/html" name &key (package :cl))
-  (let ((sym (find-symbol name package)))
-    (unless (or sym
-                (string-equal name "NIL"))
-      (http-condition 404 "No such symbol ~a" name))
-    (with-basic-page (s :title name)
+(defroute sym (:get "text/html" sym)
+  (with-basic-page (s :title (symbol-name sym))
       (:pre :class "symdesc"
-            (escaped-desc sym s)))))
+            (escaped-desc sym s))))
+
+(defmethod convert-arguments ((resource (eql #'sym)) plain-arguments keyword-arguments)
+  (declare (ignore plain-arguments keyword-arguments))
+  (handler-case (call-next-method)
+    (cannot-convert-argument (e)
+      (http-condition 404 "No such symbol under ~a" (unconvertible-value e)))))
 
 (defmethod explain-condition :around (c resource (ct snooze-types:text/html))
   (declare (ignore resource c))

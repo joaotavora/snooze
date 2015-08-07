@@ -84,6 +84,8 @@
    ;; backend stuff
    ;; 
    #:*clack-request-env*
-   #:make-clack-app))
+   #:make-clack-app
+   #:cannot-convert-argument
+   #:unconvertible-value))
 
 (defpackage :snooze-types (:use) (:export #:content))

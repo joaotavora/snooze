@@ -316,7 +316,9 @@
 (defun safe-decode (string) (quri:url-decode string))
 
 (defun safe-encode (thing)
-  (quri:url-encode (write-to-string thing)))
+  (quri:url-encode
+   (let ((*package* #.(find-package "KEYWORD")))
+     (write-to-string thing))))
 
 (defun ensure-uri (maybe-uri)
   (etypecase maybe-uri
@@ -519,6 +521,12 @@ this discovery."
    :status-code 400
    :format-control "Resource exists but invalid arguments passed"))
 
+(define-condition cannot-convert-argument (invalid-resource-arguments)
+  ((unconvertible-value :initarg :unconvertible-value :accessor unconvertible-value))
+  (:default-initargs
+   :status-code 400
+   :format-control "An argument in the URI cannot be read"))
+
 (define-condition  unsupported-content-type (http-error) ()
   (:default-initargs
    :status-code 501
@@ -536,12 +544,17 @@ this discovery."
 (defmethod convert-arguments (resource plain-arguments keyword-arguments)
   (declare (ignore resource))
   (flet ((probe (value)
-           (let ((p (let ((*read-eval* nil))
-                      (ignore-errors
-                       (read-from-string value)))))
-             (if (numberp p)
-                 p
-                 value))))
+           (handler-case 
+               (let ((*read-eval* nil)
+                     (*package* #.(find-package "KEYWORD")))
+                 (read-from-string value))
+             (error (e)
+               (error 'cannot-convert-argument
+                      :unconvertible-value value
+                      :format-control
+                      "Malformed arg for resource ~a: ~a"
+                      :format-arguments
+                      (list (resource-name *resource*) e))))))
     (values
      (mapcar #'probe plain-arguments)
      (loop for (key value) on keyword-arguments by #'cddr
