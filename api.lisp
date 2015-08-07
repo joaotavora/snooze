@@ -91,14 +91,13 @@ Can be let-bound to modify the URI scheme used by a particular
 server.")
 
 (defun http-condition (status-code
-                       &optional (format-control nil format-control-supplied-p)
-                                 (format-args nil format-args-supplied-p))
+                       &optional
+                         format-control
+                       &rest format-args)
   "Signal an HTTP condition with STATUS-CODE with with CL:ERROR."
-  (apply #'error 'http-condition :status-code status-code
-         `(,@(if format-args-supplied-p
-                 `(:format-arguments ,format-args))
-           ,@(if format-control-supplied-p
-                 `(:format-control ,format-control)))))
+  (error 'http-condition :status-code status-code
+                         :format-control format-control
+                         :format-arguments format-args))
 
 (defgeneric explain-condition (condition resource content-type )
   (:documentation "Explain CONDITION for RESOURCE in CONTENT-TYPE."))

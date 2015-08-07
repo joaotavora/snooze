@@ -514,10 +514,12 @@ SNOOZE-TYPES:CONTENT discovered in URI-PATH by *URI-CONTENT-TYPES-FUNCTION*."
 (defmethod convert-arguments (resource plain-arguments keyword-arguments)
   (declare (ignore resource))
   (flet ((probe (value)
-           (or (let ((*read-eval* nil))
-                 (ignore-errors
-                  (read-from-string value)))
-               value)))
+           (let ((p (let ((*read-eval* nil))
+                      (ignore-errors
+                       (read-from-string value)))))
+             (if (numberp p)
+                 p
+                 value))))
     (values
      (mapcar #'probe plain-arguments)
      (loop for (key value) on keyword-arguments by #'cddr
@@ -728,6 +730,3 @@ EXPLAIN-CONDITION.")
   "Default value for *RESOURCES-FUNCTION*, which see."
   *all-resources*)
 
-(defmethod print-object ((c http-condition) s)
-  (print-unreadable-object (c s :type t)
-    (format s "~a" (status-code c))))

@@ -57,24 +57,31 @@
 
 (defun escaped-desc (sym stream)
   (format stream
-          (cl-who:escape-string
+          (cl-who:escape-string-minimal
            (with-output-to-string (s)
              (describe sym s)))))
 
 (defroute sym (:get "text/html" name &key (package :cl))
-  (with-basic-page (s :title name)
-    (:pre :class "symdesc"
-          (escaped-desc (find-symbol name package) s))))
+  (let ((sym (find-symbol name package)))
+    (unless (or sym
+                (string-equal name "NIL"))
+      (http-condition 404 "No such symbol ~a" name))
+    (with-basic-page (s :title name)
+      (:pre :class "symdesc"
+            (escaped-desc sym s)))))
+
+(defmethod explain-condition :around (c resource (ct snooze-types:text/html))
+  (declare (ignore resource))
+  (with-basic-page (s :title "Snooze error")
+    (:p :class "error-description" (cl-who:str (call-next-method)))))
 
 (defmethod explain-condition ((c error) resource (ct snooze-types:text/html))
   (declare (ignore resource))
-  (with-basic-page (s :title "Snooze error")
-    (:p (:i (cl-who:fmt "An unexpected internal error has occured")))))
+  "An unexpected internal error has occured")
 
 (defmethod explain-condition ((c http-condition) resource (ct snooze-types:text/html))
   (declare (ignore resource))
-  (with-basic-page (s :title "Snooze error")
-    (:p (cl-who:fmt "ooops you have a ~a" (status-code c)))))
+  (format nil "You have a ~a: ~a" (status-code c) (cl-who:escape-string c)))
 
 (defroute snooze (:get "text/css")
   (cl-css:css
@@ -94,7 +101,11 @@
      (.demo-menu
       :overflow-y scroll
       :overflow-x hidden
-      :height 100%))))
+      :height 100%)
+     (.error-description
+      :padding 20%
+      :text-align center)
+     )))
 
 
 ;;; Hook it to Hunchentoot
