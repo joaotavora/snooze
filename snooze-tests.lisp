@@ -49,31 +49,34 @@
 (in-package :snooze-tests)
 
 (defun parse-uri-for-tests (uri)
-  (multiple-value-bind (resource pargs content-types moreuri)
+  (multiple-value-bind (resource content-types moreuri)
       (parse-resource uri)
-    (values resource
-            pargs
-            (snooze-common::parse-keywords-in-uri moreuri)
-            content-types)))
+    (multiple-value-bind (plain-args keyword-args)
+        (uri-to-arguments resource moreuri)
+      (values resource
+              plain-args
+              keyword-args
+              content-types))))
 
 (deftest test-parse-uri ()
   (multiple-value-bind (resource pargs kwargs)
       (parse-uri-for-tests "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal")
-    (is (equal pargs '("ble" "bli")))
-    (is (equal kwargs '(:FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
+    (is (equal pargs '(:ble :bli)))
+    (is (equal kwargs '(:FOO :fonix :BAR :fotrix SNOOZE:FRAGMENT :coisoetal)))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
   
   (multiple-value-bind (resource pargs kwargs)
       (let ((snooze:*resource-name-function*
-              (lambda (ignored resource &rest args) (declare (ignore ignored)) (values resource args))))
+              (lambda (uri)
+                (default-resource-name (subseq uri (mismatch "/ignored" uri))))))
         (parse-uri-for-tests "/ignored/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal"))
-    (is (equal pargs '("ble" "bli")))
-    (is (equal kwargs '(:FOO "fonix" :BAR "fotrix" SNOOZE:FRAGMENT "coisoetal")))
+    (is (equal pargs '(:ble :bli)))
+    (is (equal kwargs '(:FOO :fonix :BAR :fotrix SNOOZE:FRAGMENT :coisoetal)))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
   
   (multiple-value-bind (resource pargs)
       (parse-uri-for-tests "/bla/ble/bli")
-    (is (equal pargs '("ble" "bli")))
+    (is (equal pargs '(:ble :bli)))
     (is (eq resource #'snooze-parse-uri-tests:bla)))
 
   ;; content-types in the extension
@@ -81,43 +84,43 @@
   (multiple-value-bind (resource pargs kwargs content-types)
       (parse-uri-for-tests "/yo?foo=ok")
     (declare (ignore pargs))
-    (is (equal kwargs '(:foo "ok")))
+    (is (equal kwargs '(:foo :ok)))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (null content-types)))
   
   (multiple-value-bind (resource pargs kwargs content-types)
       (parse-uri-for-tests "/yo.css?foo=ok")
-    (declare (ignore pargs))
-    (is (equal kwargs '(:foo "ok")))
+    (is (null pargs))
+    (is (equal kwargs '(:foo :ok)))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (member (find-class 'snooze-types:text/css) content-types)))
 
   (multiple-value-bind (resource pargs kwargs content-types)
       (parse-uri-for-tests "/yo/1.css?foo=ok")
-    (is (equal pargs '("1")))
-    (is (equal kwargs '(:foo "ok")))
+    (is (equal pargs '(1)))
+    (is (equal kwargs '(:foo :ok)))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (member (find-class 'snooze-types:text/css) content-types))
 
   (multiple-value-bind (resource pargs kwargs content-types)
       (let ((snooze:*uri-content-types-function* nil))
         (parse-uri-for-tests "/yo/1.css?foo=ok"))
-    (is (equal pargs '("1.css")))
-    (is (equal kwargs '(:foo "ok")))
+    (is (equal pargs '(:1.css)))
+    (is (equal kwargs '(:foo :ok)))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (member (find-class 'snooze-types:text/css) content-types))
 
   (multiple-value-bind (resource pargs kwargs content-types)
       (parse-uri-for-tests "/yo.snooze?foo=ok")
-    (declare (ignore pargs))
-    (is (equal kwargs '(:foo "ok")))
+    (is (null pargs))
+    (is (equal kwargs '(:foo :ok)))
     (is (eq resource #'snooze-parse-uri-tests::yo.snooze))
     (is (null content-types)))
 
   (multiple-value-bind (resource pargs kwargs content-type)
       (parse-uri-for-tests "/yo/arg.unknownextension?foo=ok")
-    (is (equal pargs '("arg.unknownextension")))
-    (is (equal kwargs '(:foo "ok")))
+    (is (equal pargs '(:arg.unknownextension)))
+    (is (equal kwargs '(:foo :ok)))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (is (not content-type))))
 
@@ -281,6 +284,9 @@
   (is (string= (book-resource-path "yo with a space" :yeah)
                "/book-resource/%22yo%20with%20a%20space%22/yeah/genpath-default-coiso/genpath-default-tal?yo=genpath-default-yobla")))
 
+(defresource joaot (verb ct one two three &key quatro)
+  (:genpath joaot-path))
+
 (deftest path-parse-back ()
   (with-request ((book-resource-path :yo :yeah)) (code payload)
     (is (= 200 code))
@@ -293,7 +299,15 @@
   (with-request ((manuscript-resource-path :yo 'read-char)) (code payload)
     (is (= 200 code))
     (is (equal (read-from-string payload)
-               '(:yo cl:read-char nil :default-yo)))))
+               '(:yo cl:read-char nil :default-yo))))
+  (let ((uri "/joaot/1/2/3?quatro=4"))
+    (is (string= (multiple-value-bind (resource content-types relative-uri)
+                     (parse-resource uri)
+                   (declare (ignore content-types))
+                   (multiple-value-bind (plain-args keyword-args)
+                       (uri-to-arguments resource relative-uri)
+                     (arguments-to-uri resource plain-args keyword-args)))
+                 uri))))
 
 
 

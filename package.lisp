@@ -32,7 +32,8 @@
    #:*uri-content-types-function*
    #:*all-resources*
    #:resource-name
-   #:parse-keywords-in-uri))
+   #:parse-keywords-in-uri
+   #:ensure-uri))
 
 (defpackage #:snooze
   (:use #:cl #:snooze-common)
@@ -62,9 +63,14 @@
    ;; 
    #:defresource
    #:defroute
-   #:fragment
-   #:convert-arguments-for-server
-   #:convert-arguments-for-client
+   ;; converting arguments
+   ;; 
+   #:arguments-to-uri
+   #:uri-to-arguments
+   #:unconvertible-argument-key
+   #:unconvertible-argument-value
+   #:unconvertible-argument
+   #:fragment   
    ;; error handling
    ;; 
    #:http-condition
@@ -74,8 +80,6 @@
    #:invalid-resource-arguments
    #:no-such-route
    #:no-matching-content-types
-   #:unconvertible-argument-value
-   #:unconvertible-argument
    #:explain-condition
    ;; request handling helpers
    ;; 
@@ -87,6 +91,10 @@
    ;; 
    #:*clack-request-env*
    #:make-clack-app
-   #:unconvertible-argument-key))
+   ;; default values for some options
+   ;;
+   #:default-resource-name
+   #:search-for-extension-content-type
+   #:all-defined-resources))
 
 (defpackage :snooze-types (:use) (:export #:content))

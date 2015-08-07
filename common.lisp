@@ -223,28 +223,10 @@
       (ensure-atom (first thing))
       thing))
 
-(defun safe-decode (string) (quri:url-decode string))
-
 (defun ensure-uri (maybe-uri)
   (etypecase maybe-uri
     (string (quri:uri maybe-uri))
     (quri:uri maybe-uri)))
-
-(defun parse-keywords-in-uri (uri)
-  (let* ((uri (ensure-uri uri))
-         (query (quri:uri-query uri))
-         (fragment (quri:uri-fragment uri))
-         (keyword-args (and query
-                            (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
-                                  for (undecoded-key-name undecoded-value-string) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
-                                  when (and undecoded-key-name undecoded-value-string)
-                                    append (list (intern (string-upcase
-                                                          (safe-decode undecoded-key-name))
-                                                         :keyword)
-                                                 (safe-decode undecoded-value-string))))))
-    (append keyword-args
-            (when fragment
-              (list 'snooze:fragment fragment)))))
 
 (defun parse-resource (uri)
   "Parse URI for a resource and how it should be called.
@@ -252,36 +234,34 @@
 Honours of *RESOURCE-NAME-FUNCTION*, *RESOURCES-FUNCTION*,
 *HOME-RESOURCE* and *URI-CONTENT-TYPES-FUNCTION*.
 
-Returns nil if the resource cannot be found, otherwise returns 4
-values: RESOURCE, PLAIN-ARGS, URI-CONTENT-TYPES and
-STRIPPED-URI. RESOURCE is a generic function verifying RESOURCE-P.
-PLAIN-ARGS is a list of unconverted argument values that the
-user-agent wants to pass to the function before any keyword
-arguments. URI-CONTENT-TYPES is a list of subclasses of
-SNOOZE-TYPES:CONTENT discovered in URI-PATH by
-*URI-CONTENT-TYPES-FUNCTION*. STRIPPED-URI is the resulting URI after
-this discovery."
+Returns nil if the resource cannot be found, otherwise returns 3
+values: RESOURCE, URI-CONTENT-TYPES and RELATIVE-URI. RESOURCE is a
+generic function verifying RESOURCE-P discovered in URI.
+URI-CONTENT-TYPES is a list of subclasses of SNOOZE-TYPES:CONTENT
+discovered in URI by *URI-CONTENT-TYPES-FUNCTION*. RELATIVE-URI is the
+remaining URI after these discoveries."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
   ;;
   (let ((uri (ensure-uri uri))
-        stripped-uri
+        uri-stripped-of-content-type-info
         uri-content-types)
     (when *uri-content-types-function*
-      (multiple-value-setq (uri-content-types stripped-uri)
+      (multiple-value-setq (uri-content-types uri-stripped-of-content-type-info)
         (funcall *uri-content-types-function* 
                                   (quri:render-uri uri nil))))
-    (let* ((uri (ensure-uri (or stripped-uri uri))))
-      (multiple-value-bind (resource-name plain-arg-components)
-          (apply *resource-name-function* (cdr (cl-ppcre:split "/" (quri:uri-path uri))))
+    (let* ((uri (ensure-uri (or uri-stripped-of-content-type-info
+                                uri))))
+      (multiple-value-bind (resource-name relative-uri)
+          (funcall *resource-name-function*
+                   (quri:render-uri uri))
         (setq resource-name (and resource-name
                                  (ignore-errors
-                                  (safe-decode resource-name))))
+                                  (quri:url-decode resource-name))))
         (let ((*all-resources* (funcall *resources-function*)))
           (values (find-resource (or resource-name
                                      *home-resource*))
-                  plain-arg-components
                   (mapcar #'find-content-class uri-content-types)
-                  uri))))))
+                  relative-uri))))))
 
 (defun content-classes-in-accept-string (string)
   (labels ((expand (class)
@@ -661,12 +641,10 @@ EXPLAIN-CONDITION.")
 (defun handle-request-1 (uri method accept content-type)
   (catch 'response
     (let (*resource*
-          undecoded-plain-args
-          decoded-plain-args
-          decoded-keyword-args
-          uri-content-classes)
+          uri-content-classes
+          relative-uri)
       (brutally-explaining-conditions ()
-        (multiple-value-setq (*resource* undecoded-plain-args uri-content-classes uri)
+        (multiple-value-setq (*resource* uri-content-classes relative-uri)
           (parse-resource uri))
         (let* ((verb (find-verb-or-lose method))
                (client-accepted-content-types
@@ -680,18 +658,12 @@ EXPLAIN-CONDITION.")
                      "So sorry, but that URI doesn't match any REST resources"))
             ;; URL-decode args to strings
             ;;
-            (handler-case
-                (setq decoded-plain-args (mapcar #'snooze-common::safe-decode undecoded-plain-args)
-                      decoded-keyword-args (parse-keywords-in-uri uri))
-                (error (e)
-                       (error 'invalid-resource-arguments
-                              :format-control
-                              "Malformed request for resource ~a (~a)"
-                              :format-arguments
-                              (list (resource-name *resource*) e))))
             (multiple-value-bind (converted-plain-args converted-keyword-args)
-                (convert-arguments-for-server *resource* decoded-plain-args decoded-keyword-args)
+                (uri-to-arguments *resource* relative-uri)
               (let ((converted-arguments (append converted-plain-args converted-keyword-args)))
+                ;; This is a double check that the arguments indeed
+                ;; fit the resource's lambda list
+                ;; 
                 (unless (arglist-compatible-p *resource* converted-arguments)
                   (error 'invalid-resource-arguments
                          :format-control
@@ -732,11 +704,13 @@ EXPLAIN-CONDITION.")
                                              payload
                                              (content-class-name payload-ct)))))))))))))
 
-(defmethod convert-arguments-for-server (resource plain-arguments keyword-arguments)
+(defmethod uri-to-arguments (resource relative-uri)
+  "Default method of URI-TO-ARGUMENTS, which see."
   (declare (ignore resource))
   (flet ((probe (str &optional key)
            (handler-case
                (progn
+                 (slynk-trace-dialog:trace-format "probing ~a" str)
                  (let ((*read-eval* nil)
                        (*package* #.(find-package "KEYWORD")))
                    (read-from-string str)))
@@ -746,13 +720,32 @@ EXPLAIN-CONDITION.")
                       :unconvertible-argument-key key
                       :format-control "Malformed arg for resource ~a: ~a"
                       :format-arguments (list (resource-name *resource*) e))))))
-    (values
-     (mapcar #'probe plain-arguments)
-     (loop for (key value) on keyword-arguments by #'cddr
-           collect key
-           collect (probe value key)))))
+    (when relative-uri
+      (let* ((relative-uri (ensure-uri relative-uri))
+             (path (quri:uri-path relative-uri))
+             (query (quri:uri-query relative-uri))
+             (fragment (quri:uri-fragment relative-uri))
+             (plain-args (and path
+                              (plusp (length path))
+                              (cl-ppcre:split "/" (subseq path 1))))
+             (keyword-args (append
+                            (and query
+                                 (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
+                                       for (undecoded-key-name undecoded-value-string) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
+                                       when (and undecoded-key-name undecoded-value-string)
+                                         append (list (intern (string-upcase
+                                                               (quri:url-decode undecoded-key-name))
+                                                              :keyword)
+                                                      (quri:url-decode undecoded-value-string))))
+                            (when fragment
+                              (list 'snooze:fragment fragment)))))
+        (values
+         (mapcar #'probe (mapcar #'quri:url-decode plain-args))
+         (loop for (key value) on keyword-args by #'cddr
+               collect key
+               collect (probe value key)))))))
 
-(defmethod convert-arguments-for-client (resource plain-args keyword-args)
+(defmethod arguments-to-uri (resource plain-args keyword-args)
   (flet ((encode (thing)
            (quri:url-encode
             (cond ((keywordp thing)
@@ -771,10 +764,18 @@ EXPLAIN-CONDITION.")
                           (or query-part ""))))
       string))))
 
-(defun default-resource-name (&rest uri-components)
+(defun default-resource-name (uri)
   "Default value for *RESOURCE-NAME-FUNCTION*, which see."
-  (let ((res (first uri-components)))
-    (values (and (plusp (length res)) res) (rest uri-components))))
+  (let* ((first-slash-or-qmark (position-if #'(lambda (char)
+                                                (member char '(#\/ #\?)))
+                                            uri
+                                            :start 1)))
+    (values (cond (first-slash-or-qmark
+                   (subseq uri 1 first-slash-or-qmark))
+                  (t
+                   (subseq uri 1)))
+            (if first-slash-or-qmark
+                (subseq uri first-slash-or-qmark)))))
 
 (defun search-for-extension-content-type (uri-path)
   "Default value for *URI-CONTENT-TYPES-FUNCTION*, which see."

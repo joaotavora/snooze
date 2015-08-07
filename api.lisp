@@ -47,24 +47,22 @@ specific set of resources.")
 
 (defparameter *resource-name-function* 'default-resource-name
   "How to search for resource names in URI paths.
-Value is a function designator called on every request with multiple
-string arguments, one for each component of the request's URI
-path (not the query and fragment compoenents).  The function might be
-called with no arguments at all if the path is the root path.
+
+Value is a function designator called on every request with the
+request's URI path. The function might be called with the empty
+string.
 
 This function should return two values: a resource designator (a
-string, symbol or a resource) and a partial list of arguments to pass
-to the resource.  If the first value returned is nil, *HOME-RESOURCE*
-is used to lookup a suitable resource.
+string, symbol or a resource) and relative URI string stripped of the
+resource-designating part.  If the first value returned is nil,
+*HOME-RESOURCE* is used to lookup a suitable resource.
 
 The function should *not* attempt any URI-decoding of the component
 string. That is done automatically elsewhere.
 
 The default value is DEFAULT-RESOURCE-NAME, which return the first
-component as the first value and the remaining components are the
-second value. This means that an the URI path \"foo/bar/baz\"
-designates the \"foo\" resource called with arguments \"bar\" and
-\"baz\".
+path component as the first value and the remaining URI as the second
+value..
 
 Can be let-bound to modify the URI scheme used by a particular
 server.")
@@ -107,33 +105,35 @@ server.")
 (defgeneric explain-condition (condition resource content-type )
   (:documentation "Explain CONDITION for RESOURCE in CONTENT-TYPE."))
 
-(defgeneric convert-arguments-for-server (resource plain-args keyword-args)
+(defgeneric uri-to-arguments (resource relative-uri)
   (:documentation
-   "Massage argument strings to fit RESOURCE.
-PLAIN-ARGS and KEYWORD-ARGS are extracted from the request URI path.
-Every element of PLAIN-ARGS is a strings, as are the even numbered
-elements of KEYWORD-ARGS. The odd-numbered values of of KEYWORD-ARGS
-are the symbols of the keyword arguments defined in RESOURCE.
+   "Extract arguments for resource from RELATIVE-URI.
 
-This method is the inverse of CONVERT-ARGUMENTS-FOR-CLIENT.
+RELATIVE-URI is a string, where everything but the part designating
+RESOURCE has been kept untouched (and potentially URI-encoded)
 
-Should return two values: a list of values for plain, non-keyword
-parameters and a plist of keyword arguments.
+Should return two values: a list of \"plain\" arguments and a plist of
+keyword arguments. When appended together they should fit RESOURCE's
+lambda-list.
 
-The default method tries to READ-FROM-STRING for every value and, if
-it can't do it, signals an HTTP 400 condition of type
-UNCONVERTIBLE-ARGUMENT."))
+This method is the inverse of ARGUMENTS-TO-URI
 
-(defgeneric convert-arguments-for-client (resource plain-args keyword-args)
+The default method turns the path section of RELATIVE-URI into
+\"plain\" args and the query and fragment sections of URI into keyword
+arguments. READ-FROM-STRING is used to convert every individual
+argument's value. If an argument is unconvertible, an HTTP 400
+condition of type UNCONVERTIBLE-ARGUMENT is signalled."))
+
+(defgeneric arguments-to-uri (resource plain-args keyword-args)
   (:documentation
    "Generate an URI path string to fir RESOURCE.
-PLAIN-ARGS and KEYWORD-ARGS are like in CONVERT-ARGUMENTS-FOR-SERVER,
-but the values are now actual Lisp objects, not necessarily strings.
+PLAIN-ARGS and KEYWORD-ARGS are like the return values of
+URI-TO-ARGUMENTS.
 
 Should return a propertly escaped URI path that will display in the
 address bar and/or be sent on future requests.
 
-This method is the inverse of CONVERT-ARGUMENTS-FOR-SERVER.
+This method is the inverse of URI-TO-ARGUMENTS.
 
 The default method tries to WRITE-TO-STRING (with *PRINT-CASE* set
 to :DOWNCASE) every object, except for keywords, which are written
