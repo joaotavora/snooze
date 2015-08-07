@@ -6,22 +6,26 @@ _Snooze_ is a framework for building REST web services in Common Lisp.
 Here's a small sample:
 
 ```lisp
-(snooze:defroute probe-symbol (:get "text/plain" symbol-name &key (package :cl))
-  (if (and (find-package (string-upcase package))
-           (find-symbol (string-upcase symbol-name)
-                        (string-upcase package)))
-      (format nil "Hello world, package ~a has the symbol ~a" package symbol-name)
-      (snooze:http-error 404 "Sorry, no such symbol")))
+(snooze:defroute describe-sym (:get "text/plain" symbol &key (package :cl))
+  (let ((resource (find-symbol (string symbol) package)))
+    (if resource
+        (with-output-to-string (s) (describe resource s))
+        (snooze:http-condition 404 "Sorry, no ~a in ~a" symbol package))))
 
 (clack:clackup (make-clack-app) :port 9003)
 ```
 
-You can now navigate to:
+That's it: no regexps to setup or funny syntaxes to learn. Write your
+REST routes like you would write a Lisp function.
+
+Try out these routes:
 
 ```
-http://localhost:9003/probe-symbol/defun
-http://localhost:9003/probe-symbol/defroute?package=snooze
+http://localhost:9003/describe-sym/defun
+http://localhost:9003/describe-sym/defroute?package=snooze
+http://localhost:9003/describe-sym/funny-syntax?package=snooze
 ```
+
 
 Rationale
 ---------
