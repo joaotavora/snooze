@@ -32,7 +32,8 @@
    #:*home-resource*
    #:*uri-content-types-function*
    #:*all-resources*
-   ))
+   #:resource-name
+   #:parse-keywords-in-uri))
 
 (defpackage #:snooze
   (:use #:cl #:snooze-common)

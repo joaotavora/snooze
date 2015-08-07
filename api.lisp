@@ -47,15 +47,18 @@ specific set of resources.")
 
 (defparameter *resource-name-function* 'default-resource-name
   "How to search for resource names in URI paths.
-Value is a function designator called on every request with multiple arguments,
-one for each component of the request's URI path (not the query and
-fragment compoenents).  The function might be called with no arguments
-at all if the path is the root path.
+Value is a function designator called on every request with multiple
+string arguments, one for each component of the request's URI
+path (not the query and fragment compoenents).  The function might be
+called with no arguments at all if the path is the root path.
 
 This function should return two values: a resource designator (a
 string, symbol or a resource) and a partial list of arguments to pass
 to the resource.  If the first value returned is nil, *HOME-RESOURCE*
 is used to lookup a suitable resource.
+
+The function should *not* attempt any URI-decoding of the component
+string. That is done automatically elsewhere.
 
 The default value is DEFAULT-RESOURCE-NAME, which return the first
 component as the first value and the remaining components are the
@@ -78,9 +81,11 @@ resource's name.")
 (defparameter *uri-content-types-function* 'search-for-extension-content-type
   "Compute list of content types encoded in URI paths.
 If the value is non-NIL, it must be a function of a single argument, a
-string. This function should return two values: a list of content-type
+string representing a (quite possibly) encoded URI.
+
+This function should return two values: a list of content-type
 designators and the rewritten URI path stripped of its
-content-designating componenets.
+content-designating componenets. The function can also return NIL.
 
 The default value is SEARCH-FOR-EXTENSION-CONTENT-TYPE, which looks
 for the first filename extension in the URI path, returns a list of

@@ -71,7 +71,7 @@
             (escaped-desc sym s)))))
 
 (defmethod explain-condition :around (c resource (ct snooze-types:text/html))
-  (declare (ignore resource))
+  (declare (ignore resource c))
   (with-basic-page (s :title "Snooze error")
     (:p :class "error-description" (cl-who:str (call-next-method)))))
 
@@ -81,7 +81,7 @@
 
 (defmethod explain-condition ((c http-condition) resource (ct snooze-types:text/html))
   (declare (ignore resource))
-  (format nil "You have a ~a: ~a" (status-code c) (cl-who:escape-string c)))
+  (cl-who:escape-string (format nil "You have a ~a: ~a" (status-code c) c)))
 
 (defroute snooze (:get "text/css")
   (cl-css:css

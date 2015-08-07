@@ -174,6 +174,24 @@
               "The NIL defaults to a genpath-function's &OPTIONALs must be at the end")
         (error "The NILs to a genpath-function's &OPTIONALs must be at the end")))))
 
+(defun genpath-build-path (resource-sym required-args optional-args keyword-args)
+  (let* ((required-part (format nil "/~{~a~^/~}"
+                                (mapcar #'safe-encode
+                                        required-args)))
+         (optional-args-list (remove nil optional-args))
+         (optional-part (and optional-args-list
+                             (format nil "/~{~a~^/~}" (mapcar #'safe-encode
+                                                              optional-args-list))))
+         (query-part (and keyword-args
+                          (format nil "?~{~a=~a~^&~}" (mapcar #'safe-encode
+                                                              keyword-args)))))
+    (let ((string (format nil "/~a~a~a~a"
+                          (string-downcase resource-sym)
+                          (or required-part "")
+                          (or optional-part "")
+                          (or query-part ""))))
+      string)))
+
 (defun make-genpath-form (genpath-fn-name resource-sym lambda-list)
   (multiple-value-bind (required optional rest kwargs aok-p aux key-p)
       (alexandria:parse-ordinary-lambda-list lambda-list)
@@ -235,20 +253,7 @@
                ;; And at runtime...
                ;;
                (check-optional-args ,optional-args-form)
-               (let* ((required-args-list ,required-args-form)
-                      (required-part (format nil "/~{~a~^/~}" required-args-list))
-                      (optional-args-list (remove nil ,optional-args-form))
-                      (optional-part (and optional-args-list
-                                          (format nil "/~{~a~^/~}" optional-args-list)))
-                      (flattened-keywords-list ,keyword-arguments-form)
-                      (query-part (and flattened-keywords-list
-                                       (format nil "?~{~a=~a~^&~}" flattened-keywords-list))))
-                 (let ((string (format nil "/~a~a~a~a"
-                                       (string-downcase ',resource-sym)
-                                       (or required-part "")
-                                       (or optional-part "")
-                                       (or query-part ""))))
-                   string)))))))
+               (genpath-build-path ',resource-sym ,required-args-form ,optional-args-form ,keyword-arguments-form))))))
 
 (defun verb-spec-or-lose (verb-spec)
   "Convert VERB-SPEC into something CL:DEFMETHOD can grok."
@@ -308,16 +313,28 @@
       (ensure-atom (first thing))
       thing))
 
+(defun safe-decode (string) (quri:url-decode string))
+
+(defun safe-encode (thing)
+  (quri:url-encode (write-to-string thing)))
+
+(defun ensure-uri (maybe-uri)
+  (etypecase maybe-uri
+    (string (quri:uri maybe-uri))
+    (quri:uri maybe-uri)))
+
 (defun parse-keywords-in-uri (query fragment)
   (let* ((keyword-args (and query
                             (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
-                                  for (key-name value) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
-                                  when (and key-name value)
-                                    append (list (intern (string-upcase key-name) :keyword)
-                                                 value)))))
+                                  for (undecoded-key-name undecoded-value-string) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
+                                  when (and undecoded-key-name undecoded-value-string)
+                                    append (list (intern (string-upcase
+                                                          (safe-decode undecoded-key-name))
+                                                         :keyword)
+                                                 (safe-decode undecoded-value-string))))))
     (append keyword-args
-                    (when fragment
-                      (list 'snooze:fragment fragment)))))
+            (when fragment
+              (list 'snooze:fragment fragment)))))
 
 (defun parse-resource (uri)
   "Parse URI for a resource and how it should be called.
@@ -325,37 +342,36 @@
 Honours of *RESOURCE-NAME-FUNCTION*, *RESOURCES-FUNCTION*,
 *HOME-RESOURCE* and *URI-CONTENT-TYPES-FUNCTION*.
 
-Returns nil if the resource cannot be found, otherwise returns up to 4
-values: RESOURCE, PLAIN-ARGS, KEYWORD-ARGS and
-URI-CONTENT-TYPES. RESOURCE is a generic function verifying
-RESOURCE-P.  PLAIN-ARGS is a list of unconverted argument values that
-the user-agent wants to pass to the function before any keyword
-arguments. KEYWORD-ARGS is a plist of keys and unconverted argument
-values that user agent wants to pass to the function as keyword
+Returns nil if the resource cannot be found, otherwise returns 4
+values: RESOURCE, PLAIN-ARGS, URI-CONTENT-TYPES and
+STRIPPED-URI. RESOURCE is a generic function verifying RESOURCE-P.
+PLAIN-ARGS is a list of unconverted argument values that the
+user-agent wants to pass to the function before any keyword
 arguments. URI-CONTENT-TYPES is a list of subclasses of
-SNOOZE-TYPES:CONTENT discovered in URI-PATH by *URI-CONTENT-TYPES-FUNCTION*."
+SNOOZE-TYPES:CONTENT discovered in URI-PATH by
+*URI-CONTENT-TYPES-FUNCTION*. STRIPPED-URI is the resulting URI after
+this discovery."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
   ;;
-  (let ((uri (puri:parse-uri uri))
+  (let ((uri (ensure-uri uri))
         stripped-uri
         uri-content-types)
     (when *uri-content-types-function*
       (multiple-value-setq (uri-content-types stripped-uri)
-        (funcall *uri-content-types-function*
-                 (puri:render-uri uri nil))))
-    (let* ((after-uri (or stripped-uri
-                          uri))
-           (uri (puri:parse-uri after-uri))
-           (parsed-path (puri:uri-parsed-path uri)))
-      (multiple-value-bind (resource-name plain-args)
-          (apply *resource-name-function* (cdr parsed-path))
+        (funcall *uri-content-types-function* 
+                                  (quri:render-uri uri nil))))
+    (let* ((uri (ensure-uri (or stripped-uri uri))))
+      (multiple-value-bind (resource-name plain-arg-components)
+          (apply *resource-name-function* (cdr (cl-ppcre:split "/" (quri:uri-path uri))))
+        (setq resource-name (and resource-name
+                                 (ignore-errors
+                                  (safe-decode resource-name))))
         (let ((*all-resources* (funcall *resources-function*)))
           (values (find-resource (or resource-name
                                      *home-resource*))
-                  plain-args
-                  (parse-keywords-in-uri (puri:uri-query uri)
-                                         (puri:uri-fragment uri))
-                  (mapcar #'find-content-class uri-content-types)))))))
+                  plain-arg-components
+                  (mapcar #'find-content-class uri-content-types)
+                  uri))))))
 
 (defun content-classes-in-accept-string (string)
   (labels ((expand (class)
@@ -658,10 +674,14 @@ EXPLAIN-CONDITION.")
 
 (defun handle-request-1 (uri method accept content-type)
   (catch 'response
-    (let (*resource* plain-args keyword-args uri-content-classes)
+    (let (*resource*
+          undecoded-plain-args
+          decoded-plain-args
+          decoded-keyword-args
+          uri-content-classes)
       (brutally-explaining-conditions ()
-        (multiple-value-setq (*resource* plain-args keyword-args uri-content-classes)
-          (parse-resource (puri:parse-uri uri)))
+        (multiple-value-setq (*resource* undecoded-plain-args uri-content-classes uri)
+          (parse-resource uri))
         (let* ((verb (find-verb-or-lose method))
                (client-accepted-content-types
                  (or (append uri-content-classes
@@ -672,15 +692,27 @@ EXPLAIN-CONDITION.")
               (error 'no-such-resource
                      :format-control
                      "So sorry, but that URI doesn't match any REST resources"))
+            ;; URL-decode args to strings
+            ;;
+            (handler-case
+                (setq decoded-plain-args (mapcar #'snooze-common::safe-decode undecoded-plain-args)
+                      decoded-keyword-args (parse-keywords-in-uri (quri:uri-query uri)
+                                                                  (quri:uri-fragment uri)))
+                (error (e)
+                       (error 'invalid-resource-arguments
+                              :format-control
+                              "Malformed request for resource ~a (~a)"
+                              :format-arguments
+                              (list (resource-name *resource*) e))))
             (multiple-value-bind (converted-plain-args converted-keyword-args)
-                (convert-arguments *resource* plain-args keyword-args)
+                (convert-arguments *resource* decoded-plain-args decoded-keyword-args)
               (let ((converted-arguments (append converted-plain-args converted-keyword-args)))
                 (unless (arglist-compatible-p *resource* converted-arguments)
                   (error 'invalid-resource-arguments
                          :format-control
                          "Too many, too few, or unsupported query arguments for REST resource ~a"
                          :format-arguments
-                         (list *resource*)))
+                         (list (resource-name *resource*))))
                 (let* ((content-types-to-try
                          (etypecase verb
                            (snooze-verbs:sending-verb client-accepted-content-types)

@@ -261,7 +261,7 @@
   (is (string= (book-resource-path "yo" "yeah" "OK" nil :yo "mama" :fornix nil)
                "/book-resource/yo/yeah/OK?yo=mama"))
   (is (string= (book-resource-path "yo" "yeah") "/book-resource/yo/yeah/coiso/bla?yo=yobla"))
-  (is (string= (book-resource-path "yo with a space" "yeah") "/book-resource/yo with a space/yeah/coiso/bla?yo=yobla")))
+  (is (string= (book-resource-path "yo with a space" "yeah") "/book-resource/yo%20with%20a%20space/yeah/coiso/bla?yo=yobla")))
 
 
 
