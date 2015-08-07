@@ -238,7 +238,7 @@
                       (flattened-keywords-list ,keyword-arguments-form)
                       (query-part (and flattened-keywords-list
                                        (format nil "?~{~a=~a~^&~}" flattened-keywords-list))))
-                 (let ((string (format nil "~a~a~a~a"
+                 (let ((string (format nil "/~a~a~a~a"
                                        (string-downcase ',resource-sym)
                                        (or required-part "")
                                        (or optional-part "")
@@ -343,7 +343,7 @@ SNOOZE-TYPES:CONTENT discovered in URI-PATH by *URI-CONTENT-TYPES-FUNCTION*."
            (uri (puri:parse-uri after-uri))
            (parsed-path (puri:uri-parsed-path uri)))
       (multiple-value-bind (resource-name plain-args)
-          (apply *resource-name-function* (cdr parsed-path))p
+          (apply *resource-name-function* (cdr parsed-path))
         (values (find-resource (or resource-name
                                    *home-resource*))
                 plain-args

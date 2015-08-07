@@ -94,7 +94,7 @@
   (multiple-value-bind (resource pargs kwargs content-types)
       (let ((snooze:*uri-content-types-function* nil))
         (parse-resource "/yo/1.css?foo=ok"))
-    (is (equal pargs '("1")))
+    (is (equal pargs '("1.css")))
     (is (equal kwargs '(:foo "ok")))
     (is (eq resource #'snooze-parse-uri-tests:yo))
     (member (find-class 'snooze-types:text/css) content-types))
@@ -254,14 +254,14 @@
 
 (deftest path-generation ()
   (is (string= (book-resource-path "yo" "yeah" nil nil)
-               "book-resource/yo/yeah?yo=yobla"))
+               "/book-resource/yo/yeah?yo=yobla"))
   (signals error (book-resource-path "yo" "yeah" nil "AHA"))
   (is (string= (book-resource-path "yo" "yeah" "OK" nil)
-               "book-resource/yo/yeah/OK?yo=yobla"))
+               "/book-resource/yo/yeah/OK?yo=yobla"))
   (is (string= (book-resource-path "yo" "yeah" "OK" nil :yo "mama" :fornix nil)
-               "book-resource/yo/yeah/OK?yo=mama"))
-  (is (string= (book-resource-path "yo" "yeah") "book-resource/yo/yeah/coiso/bla?yo=yobla"))
-  (is (string= (book-resource-path "yo with a space" "yeah") "book-resource/yo with a space/yeah/coiso/bla?yo=yobla")))
+               "/book-resource/yo/yeah/OK?yo=mama"))
+  (is (string= (book-resource-path "yo" "yeah") "/book-resource/yo/yeah/coiso/bla?yo=yobla"))
+  (is (string= (book-resource-path "yo with a space" "yeah") "/book-resource/yo with a space/yeah/coiso/bla?yo=yobla")))
 
 
 

@@ -30,29 +30,41 @@
   (:html
    (:head (:title (cl-who:str (or title "Snooze")))
           (:meta :name "viewport" :content "width=device-width, initial-scale=1")
-          (:link :href "/snooze.css" :rel "stylesheet" :type "text/css")
-          (:link :rel "stylesheet" :href "http://yui.yahooapis.com/pure/0.6.0/pure-min.css"))
+          (:link :rel "stylesheet" :href "http://yui.yahooapis.com/pure/0.6.0/pure-min.css")
+          (:link :href "/snooze.css" :rel "stylesheet" :type "text/css"))
    (:body
     (:div :id "layout" :class "pure-g coiso"
-          (:div :class "pure-u-1-3 pure-menu custom-restricted-width"
-                (:span :class "pure-menu-heading" "Snooze")
-                (:ul :class "pure-menu-list"
-                     (loop repeat 3
-                           for i from 0
+          (:div :class "pure-u-1-6 pure-menu"
+                (:span :class "demo-menu-heading pure-menu-heading" "Symbols")
+                (:ul :class "pure-menu-list demo-menu"
+                     (loop for sym being the external-symbols of :cl
+                           repeat 100
                            do (cl-who:htm
                                (:li :class "pure-menu-item"
-                                    (:a :href "#" :class "pure-menu-link"
-                                        (cl-who:fmt "item ~a" i)))))))
-          (:div :class "pure-u-2-3"
-                (yield))))))
+                                    (:a :href (sym-path sym) :class "pure-menu-link"
+                                        (cl-who:fmt "~a" sym)))))))
+          (:div :class "content pure-u-5-6"
+                (:div :class "pure-menu-heading demo-description" "Description")
+                (:div :class ""
+                      (yield)))))))
 
 (defroute home (:get "text/html")
   (with-basic-page (s :title "Snooze demo")
     (:p "Incredible home!")))
 
-(defroute home (:get "text/html")
-  (with-basic-page (s :title "Snooze demo")
-    (:p "Incredible home!")))
+(defresource sym (verb ct name &key package)
+  (:genpath sym-path))
+
+(defun escaped-desc (sym stream)
+  (format stream
+          (cl-who:escape-string
+           (with-output-to-string (s)
+             (describe sym s)))))
+
+(defroute sym (:get "text/html" name &key (package :cl))
+  (with-basic-page (s :title name)
+    (:pre :class "symdesc"
+          (escaped-desc (find-symbol name package) s))))
 
 (defmethod explain-condition ((c error) resource (ct snooze-types:text/html))
   (declare (ignore resource))
@@ -67,13 +79,22 @@
 (defroute snooze (:get "text/css")
   (cl-css:css
    `((.custom-restricted-width
-      :width 160px
       :font-family serif
       :float left)
-     (.coiso
-      :height 100px)
+     (.demo-menu-heading
+      :background tomato)
+     (.demo-description
+      :background honeydew)
+     (.symdesc
+      :padding 10%
+      :padding-top 0
+      :padding-bottom 0)
      (.pure-menu-item
-      :height auto))))
+      :height auto)
+     (.demo-menu
+      :overflow-y scroll
+      :overflow-x hidden
+      :height 100%))))
 
 
 ;;; Hook it to Hunchentoot
