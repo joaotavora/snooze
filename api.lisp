@@ -156,7 +156,7 @@ Returns three values CODE, PAYLOAD and OUT-CONTENT-TYPE, which should
 be used by the application to craft a response to the request."
   (handle-request-1 uri method accept content-type))
 
-(defvar *clack-request-env*
+(defvar *clack-request-env* nil
   "Bound in function made by MAKE-CLACK-APP to Clack environment.")
 
 (defun make-clack-app (&optional bindings)

@@ -529,9 +529,13 @@ out with NO-SUCH-ROUTE."
                 maybe))
             (mapcar #'make-instance try-list))
       (error 'no-such-route
-             :status-code (if (destructive-p verb)
-                              415 ; unsupported media type
-                              406 ; not acceptable
+             :status-code (if try-list
+                              (if (destructive-p verb)
+                                  415 ; unsupported media type
+                                  406 ; not acceptable
+                              )
+                              ;; FIXME, make "unimplemented" more pervasive
+                              501 ; unimplemented
                               ))))
 
 (defun call-brutally-explaining-conditions (fn)
@@ -595,7 +599,7 @@ out with NO-SUCH-ROUTE."
                          (error
                            (lambda (e)
                              (declare (ignore e))
-                             (setq code 501)
+                             (setq code 500)
                              (when (and *catch-errors*
                                         (not (eq *catch-errors* :backtrace)))
                                (invoke-restart 'politely-explain)))))
@@ -672,7 +676,7 @@ EXPLAIN-CONDITION.")
                          :format-arguments
                          (list (resource-name *resource*))))
                 (let* ((content-types-to-try
-                         (etypecase verb
+                         (typecase verb
                            (snooze-verbs:sending-verb client-accepted-content-types)
                            (snooze-verbs:receiving-verb
                             (list (or (and uri-content-classes
