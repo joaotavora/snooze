@@ -107,13 +107,15 @@ server.")
 (defgeneric explain-condition (condition resource content-type )
   (:documentation "Explain CONDITION for RESOURCE in CONTENT-TYPE."))
 
-(defgeneric convert-arguments (resource plain-args keyword-args)
+(defgeneric convert-arguments-for-server (resource plain-args keyword-args)
   (:documentation
-   "Massage PLAIN-ARGS and KEYWORD-ARGS fit RESOURCE.
+   "Massage argument strings to fit RESOURCE.
 PLAIN-ARGS and KEYWORD-ARGS are extracted from the request URI path.
 Every element of PLAIN-ARGS is a strings, as are the even numbered
 elements of KEYWORD-ARGS. The odd-numbered values of of KEYWORD-ARGS
 are the symbols of the keyword arguments defined in RESOURCE.
+
+This method is the inverse of CONVERT-ARGUMENTS-FOR-CLIENT.
 
 Should return two values: a list of values for plain, non-keyword
 parameters and a plist of keyword arguments.
@@ -121,6 +123,23 @@ parameters and a plist of keyword arguments.
 The default method tries to READ-FROM-STRING for every value and, if
 it can't do it, signals an HTTP 400 condition of type
 UNCONVERTIBLE-ARGUMENT."))
+
+(defgeneric convert-arguments-for-client (resource plain-args keyword-args)
+  (:documentation
+   "Generate an URI path string to fir RESOURCE.
+PLAIN-ARGS and KEYWORD-ARGS are like in CONVERT-ARGUMENTS-FOR-SERVER,
+but the values are now actual Lisp objects, not necessarily strings.
+
+Should return a propertly escaped URI path that will display in the
+address bar and/or be sent on future requests.
+
+This method is the inverse of CONVERT-ARGUMENTS-FOR-SERVER.
+
+The default method tries to WRITE-TO-STRING (with *PRINT-CASE* set
+to :DOWNCASE) every object, except for keywords, which are written
+without the leading \":\" character. Afterwards the whole URI is
+escaped for invalid sequences."))
+  
 
 (defun handle-request (uri &key
                              (method :get)

@@ -165,96 +165,6 @@
         else
           collect (first args) into qualifiers))
 
-(defun check-optional-args (opt-values &optional warn-p)
-  (let ((nil-tail
-          (member nil opt-values)))
-  (unless (every #'null (rest nil-tail))
-    (if warn-p
-        (warn 'style-warning :format-control
-              "The NIL defaults to a genpath-function's &OPTIONALs must be at the end")
-        (error "The NILs to a genpath-function's &OPTIONALs must be at the end")))))
-
-(defun genpath-build-path (resource-sym required-args optional-args keyword-args)
-  (let* ((required-part (format nil "/~{~a~^/~}"
-                                (mapcar #'safe-encode
-                                        required-args)))
-         (optional-args-list (remove nil optional-args))
-         (optional-part (and optional-args-list
-                             (format nil "/~{~a~^/~}" (mapcar #'safe-encode
-                                                              optional-args-list))))
-         (query-part (and keyword-args
-                          (format nil "?~{~a=~a~^&~}" (mapcar #'safe-encode
-                                                              keyword-args)))))
-    (let ((string (format nil "/~a~a~a~a"
-                          (string-downcase resource-sym)
-                          (or required-part "")
-                          (or optional-part "")
-                          (or query-part ""))))
-      string)))
-
-(defun make-genpath-form (genpath-fn-name resource-sym lambda-list)
-  (multiple-value-bind (required optional rest kwargs aok-p aux key-p)
-      (alexandria:parse-ordinary-lambda-list lambda-list)
-    (declare (ignore aux key-p))
-    (let* (;;
-           ;;
-           (augmented-optional
-             (loop for (name default nil) in optional
-                   collect `(,name ,default ,(gensym))))
-           ;;
-           ;;
-           (augmented-kwargs
-             (loop for (kw-and-sym default) in kwargs
-                   collect `(,kw-and-sym ,default ,(gensym))))
-           ;;
-           ;;
-           (all-kwargs
-             augmented-kwargs)
-           ;;
-           ;;
-           (required-args-form
-             `(list ,@required))
-           ;;
-           ;;
-           (optional-args-form
-             `(list ,@(loop for (name default supplied-p) in augmented-optional
-                            collect `(if ,supplied-p ,name (or ,name ,default)))))
-           ;;
-           ;;
-           (keyword-arguments-form
-             `(alexandria:flatten
-               (remove-if #'null
-                          (list
-                           ,@(loop for (kw-and-sym default supplied-p)
-                                     in augmented-kwargs
-                                   for (nil sym) = kw-and-sym
-                                   collect `(list (string-downcase ',sym)
-                                                  (if ,supplied-p
-                                                      ,sym
-                                                      (or ,sym
-                                                          ,default)))))
-                          :key #'second))))
-      ;; Optional args are checked at macroexpansion time
-      ;;
-      (check-optional-args (mapcar #'second optional) 'warn-p)
-      `(defun ,genpath-fn-name
-           ,@`(;; Nasty, this could easily be a function.
-               ;; 
-               (,@required
-                &optional
-                  ,@augmented-optional
-                  ,@(if rest
-                        (warn 'style-warning
-                              :format-control "&REST ~a is not supported for genpath-functions"
-                              :format-arguments (list rest)))
-                &key
-                  ,@all-kwargs
-                  ,@(if aok-p `(&allow-other-keys)))
-               ;; And at runtime...
-               ;;
-               (check-optional-args ,optional-args-form)
-               (genpath-build-path ',resource-sym ,required-args-form ,optional-args-form ,keyword-arguments-form))))))
-
 (defun verb-spec-or-lose (verb-spec)
   "Convert VERB-SPEC into something CL:DEFMETHOD can grok."
   (labels ((verb-designator-to-verb (designator)
@@ -314,11 +224,6 @@
       thing))
 
 (defun safe-decode (string) (quri:url-decode string))
-
-(defun safe-encode (thing)
-  (quri:url-encode
-   (let ((*package* #.(find-package "KEYWORD")))
-     (write-to-string thing))))
 
 (defun ensure-uri (maybe-uri)
   (etypecase maybe-uri
@@ -423,6 +328,83 @@ this discovery."
 ;;;
 (in-package :snooze)
 
+(defun check-optional-args (opt-values &optional warn-p)
+  (let ((nil-tail
+          (member nil opt-values)))
+  (unless (every #'null (rest nil-tail))
+    (if warn-p
+        (warn 'style-warning :format-control
+              "The NIL defaults to a genpath-function's &OPTIONALs must be at the end")
+        (error "The NILs to a genpath-function's &OPTIONALs must be at the end")))))
+
+(defun make-genpath-form (genpath-fn-name resource-sym lambda-list)
+  (multiple-value-bind (required optional rest kwargs aok-p aux key-p)
+      (alexandria:parse-ordinary-lambda-list lambda-list)
+    (declare (ignore aux key-p))
+    (let* (;;
+           ;;
+           (augmented-optional
+             (loop for (name default nil) in optional
+                   collect `(,name ,default ,(gensym))))
+           ;;
+           ;;
+           (augmented-kwargs
+             (loop for (kw-and-sym default) in kwargs
+                   collect `(,kw-and-sym ,default ,(gensym))))
+           ;;
+           ;;
+           (all-kwargs
+             augmented-kwargs)
+           ;;
+           ;;
+           (required-args-form
+             `(list ,@required))
+           ;;
+           ;;
+           (optional-args-form
+             `(list ,@(loop for (name default supplied-p) in augmented-optional
+                            collect `(if ,supplied-p ,name (or ,name ,default)))))
+           ;;
+           ;;
+           (keyword-arguments-form
+             `(alexandria:flatten
+               (remove-if #'null
+                          (list
+                           ,@(loop for (kw-and-sym default supplied-p)
+                                     in augmented-kwargs
+                                   for (nil sym) = kw-and-sym
+                                   collect `(list (intern (symbol-name ',sym) (find-package :KEYWORD))
+                                                  (if ,supplied-p
+                                                      ,sym
+                                                      (or ,sym
+                                                          ,default)))))
+                          :key #'second))))
+      ;; Optional args are checked at macroexpansion time
+      ;;
+      (check-optional-args (mapcar #'second optional) 'warn-p)
+      `(defun ,genpath-fn-name
+           ,@`(;; Nasty, this could easily be a function.
+               ;; 
+               (,@required
+                &optional
+                  ,@augmented-optional
+                  ,@(if rest
+                        (warn 'style-warning
+                              :format-control "&REST ~a is not supported for genpath-functions"
+                              :format-arguments (list rest)))
+                &key
+                  ,@all-kwargs
+                  ,@(if aok-p `(&allow-other-keys)))
+               ;; And at runtime...
+               ;;
+               (check-optional-args ,optional-args-form)
+               (convert-arguments-for-client
+                (find-resource ',resource-sym)
+                (append
+                 ,required-args-form
+                 (remove nil ,optional-args-form))
+                ,keyword-arguments-form))))))
+
 (defun defroute-1 (name args)
   (let* (;; find the qualifiers and lambda list
          ;; 
@@ -491,6 +473,10 @@ this discovery."
          (:generic-function-class resource-generic-function)
          ,@defgeneric-args))))
 
+
+;;; Some external stuff but hidden away from the main file
+;;; 
+
 (defmethod explain-condition (condition resource (content-type (eql 'failsafe)))
   (declare (ignore resource))
   (format nil "~a" condition))
@@ -536,33 +522,17 @@ this discovery."
    :status-code 501
    :format-control "Resource exists but invalid arguments passed"))
 
+
+;;; More internal stuff
+;;; 
+
 (define-condition no-such-route (http-condition) ()
   (:default-initargs
    :format-control "Resource exists but no such route"))
 
-
 (defmethod initialize-instance :after ((e http-error) &key)
   (assert (<= 500 (status-code e) 599) nil
           "An HTTP error must have a status code between 500 and 599"))
-
-(defmethod convert-arguments (resource plain-arguments keyword-arguments)
-  (declare (ignore resource))
-  (flet ((probe (value &optional key)
-           (handler-case 
-               (let ((*read-eval* nil)
-                     (*package* #.(find-package "KEYWORD")))
-                 (read-from-string value))
-             (error (e)
-               (error 'unconvertible-argument
-                      :unconvertible-argument-value value
-                      :unconvertible-argument-key key
-                      :format-control "Malformed arg for resource ~a: ~a"
-                      :format-arguments (list (resource-name *resource*) e))))))
-    (values
-     (mapcar #'probe plain-arguments)
-     (loop for (key value) on keyword-arguments by #'cddr
-           collect key
-           collect (probe value key)))))
 
 (defun matching-content-type-or-lose (resource verb args try-list)
   "Check RESOURCE for route matching VERB, TRY-LIST and ARGS.
@@ -720,7 +690,7 @@ EXPLAIN-CONDITION.")
                               :format-arguments
                               (list (resource-name *resource*) e))))
             (multiple-value-bind (converted-plain-args converted-keyword-args)
-                (convert-arguments *resource* decoded-plain-args decoded-keyword-args)
+                (convert-arguments-for-server *resource* decoded-plain-args decoded-keyword-args)
               (let ((converted-arguments (append converted-plain-args converted-keyword-args)))
                 (unless (arglist-compatible-p *resource* converted-arguments)
                   (error 'invalid-resource-arguments
@@ -761,6 +731,45 @@ EXPLAIN-CONDITION.")
                     (throw 'response (values code
                                              payload
                                              (content-class-name payload-ct)))))))))))))
+
+(defmethod convert-arguments-for-server (resource plain-arguments keyword-arguments)
+  (declare (ignore resource))
+  (flet ((probe (str &optional key)
+           (handler-case
+               (progn
+                 (let ((*read-eval* nil)
+                       (*package* #.(find-package "KEYWORD")))
+                   (read-from-string str)))
+             (error (e)
+               (error 'unconvertible-argument
+                      :unconvertible-argument-value str
+                      :unconvertible-argument-key key
+                      :format-control "Malformed arg for resource ~a: ~a"
+                      :format-arguments (list (resource-name *resource*) e))))))
+    (values
+     (mapcar #'probe plain-arguments)
+     (loop for (key value) on keyword-arguments by #'cddr
+           collect key
+           collect (probe value key)))))
+
+(defmethod convert-arguments-for-client (resource plain-args keyword-args)
+  (flet ((encode (thing)
+           (quri:url-encode
+            (cond ((keywordp thing)
+                   (string-downcase thing))
+                  (t
+                   (let ((*package* #.(find-package "KEYWORD"))
+                         (*print-case* :downcase))
+                     (write-to-string thing)))))))
+  (let* ((plain-part (format nil "/~{~a~^/~}"
+                                (mapcar #'encode plain-args)))
+         (query-part (and keyword-args
+                          (format nil "?~{~a=~a~^&~}" (mapcar #'encode keyword-args)))))
+    (let ((string (format nil "/~a~a~a"
+                          (string-downcase (resource-name resource))
+                          (or plain-part "")
+                          (or query-part ""))))
+      string))))
 
 (defun default-resource-name (&rest uri-components)
   "Default value for *RESOURCE-NAME-FUNCTION*, which see."

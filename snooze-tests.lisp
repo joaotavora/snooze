@@ -255,21 +255,43 @@
 
 ;;; Genpath section
 ;;; 
-(defresource book-resource (verb content-type file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
+(defresource book-resource (verb content-type file user &optional
+                                 (coiso :genpath-default-coiso)
+                                 (tal :genpath-default-tal)
+                                 &key fornix (yo :genpath-default-yobla))
   (:genpath book-resource-path)
-  (:route :around (:get "text/plain" file user &optional (coiso "coiso") (tal "bla") &key fornix (yo "yobla"))
-          (declare (ignore file user coiso tal fornix yo))))
+  (:route (:get "text/plain" file user &optional (coiso :default-coiso) (tal :default-tal) &key fornix (yo :yobla))
+          (write-to-string (list file user coiso tal fornix yo))))
+
+(defresource manuscript-resource (verb content-type file user &key)
+  (:genpath manuscript-resource-path)
+  (:route (:get "text/plain" file user &key fornix (yo :default-yo))
+          (write-to-string (list file user fornix yo))))
 
 (deftest path-generation ()
-  (is (string= (book-resource-path "yo" "yeah" nil nil)
+  (is (string= (book-resource-path :yo :yeah nil nil)
                "/book-resource/yo/yeah?yo=yobla"))
   (signals error (book-resource-path "yo" "yeah" nil "AHA"))
-  (is (string= (book-resource-path "yo" "yeah" "OK" nil)
-               "/book-resource/yo/yeah/OK?yo=yobla"))
-  (is (string= (book-resource-path "yo" "yeah" "OK" nil :yo "mama" :fornix nil)
-               "/book-resource/yo/yeah/OK?yo=mama"))
-  (is (string= (book-resource-path "yo" "yeah") "/book-resource/yo/yeah/coiso/bla?yo=yobla"))
-  (is (string= (book-resource-path "yo with a space" "yeah") "/book-resource/yo%20with%20a%20space/yeah/coiso/bla?yo=yobla")))
+  (is (string= (book-resource-path :yo :yeah "MixedCase" nil)
+               "/book-resource/yo/yeah/%22MixedCase%22?yo=yobla"))
+  (is (string= (book-resource-path :yo :yeah "OK" nil :yo :mama :fornix nil)
+               "/book-resource/yo/yeah/%22OK%22?yo=mama"))
+  (is (string= (book-resource-path :yo :yeah) "/book-resource/yo/yeah/coiso/bla?yo=yobla"))
+  (is (string= (book-resource-path "yo with a space" :yeah) "/book-resource/%22yo%20with%20a%20space%22/yeah/coiso/bla?yo=yobla")))
+
+(deftest path-parse-back ()
+  (with-request ((book-resource-path :yo :yeah)) (code payload)
+    (is (= 200 code))
+    (is (equal (read-from-string payload)
+               '(:yo :yeah :genpath-default-coiso :genpath-default-tal nil :genpath-default-yobla))))
+  (with-request ((manuscript-resource-path :yo :yeah)) (code payload)
+    (is (= 200 code))
+    (is (equal (read-from-string payload)
+               '(:yo :yeah nil :default-yo))))
+  (with-request ((manuscript-resource-path :yo 'read-char)) (code payload)
+    (is (= 200 code))
+    (is (equal (read-from-string payload)
+               '(:yo cl:read-char nil :default-yo)))))
 
 
 

@@ -2,7 +2,6 @@
   (:use #:cl)
   (:export
    #:ensure-atom
-   #:make-genpath-form
    #:content-type-spec-or-lose
    #:verb-spec-or-lose
    #:parse-defroute-args
@@ -64,7 +63,8 @@
    #:defresource
    #:defroute
    #:fragment
-   #:convert-arguments
+   #:convert-arguments-for-server
+   #:convert-arguments-for-client
    ;; error handling
    ;; 
    #:http-condition
@@ -87,6 +87,6 @@
    ;; 
    #:*clack-request-env*
    #:make-clack-app
-   ))
+   #:unconvertible-argument-key))
 
 (defpackage :snooze-types (:use) (:export #:content))
