@@ -69,8 +69,8 @@
 (defmethod convert-arguments ((resource (eql #'sym)) plain-arguments keyword-arguments)
   (declare (ignore plain-arguments keyword-arguments))
   (handler-case (call-next-method)
-    (cannot-convert-argument (e)
-      (http-condition 404 "No such symbol under ~a" (unconvertible-value e)))))
+    (unconvertible-argument (e)
+      (http-condition 404 "No such symbol under ~a" (unconvertible-argument-value e)))))
 
 (defmethod explain-condition :around (c resource (ct snooze-types:text/html))
   (declare (ignore resource c))

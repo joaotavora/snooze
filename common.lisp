@@ -521,8 +521,9 @@ this discovery."
    :status-code 400
    :format-control "Resource exists but invalid arguments passed"))
 
-(define-condition cannot-convert-argument (invalid-resource-arguments)
-  ((unconvertible-value :initarg :unconvertible-value :accessor unconvertible-value))
+(define-condition unconvertible-argument (invalid-resource-arguments)
+  ((unconvertible-argument-value :initarg :unconvertible-argument-value :accessor unconvertible-argument-value)
+   (unconvertible-argument-key :initarg :unconvertible-argument-key :accessor unconvertible-argument-key))
   (:default-initargs
    :status-code 400
    :format-control "An argument in the URI cannot be read"))
@@ -543,23 +544,22 @@ this discovery."
 
 (defmethod convert-arguments (resource plain-arguments keyword-arguments)
   (declare (ignore resource))
-  (flet ((probe (value)
+  (flet ((probe (value &optional key)
            (handler-case 
                (let ((*read-eval* nil)
                      (*package* #.(find-package "KEYWORD")))
                  (read-from-string value))
              (error (e)
-               (error 'cannot-convert-argument
-                      :unconvertible-value value
-                      :format-control
-                      "Malformed arg for resource ~a: ~a"
-                      :format-arguments
-                      (list (resource-name *resource*) e))))))
+               (error 'unconvertible-argument
+                      :unconvertible-argument-value value
+                      :unconvertible-argument-key key
+                      :format-control "Malformed arg for resource ~a: ~a"
+                      :format-arguments (list (resource-name *resource*) e))))))
     (values
      (mapcar #'probe plain-arguments)
      (loop for (key value) on keyword-arguments by #'cddr
            collect key
-           collect (probe value)))))
+           collect (probe value key)))))
 
 (defun matching-content-type-or-lose (resource verb args try-list)
   "Check RESOURCE for route matching VERB, TRY-LIST and ARGS.

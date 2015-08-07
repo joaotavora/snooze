@@ -118,8 +118,9 @@ are the symbols of the keyword arguments defined in RESOURCE.
 Should return two values: a list of values for plain, non-keyword
 parameters and a plist of keyword arguments.
 
-The default method tries to convert every argument to a number,
-otherwise leaves it uncoverted in string form."))
+The default method tries to READ-FROM-STRING for every value and, if
+it can't do it, signals an HTTP 400 condition of type
+UNCONVERTIBLE-ARGUMENT."))
 
 (defun handle-request (uri &key
                              (method :get)

@@ -74,6 +74,8 @@
    #:invalid-resource-arguments
    #:no-such-route
    #:no-matching-content-types
+   #:unconvertible-argument-value
+   #:unconvertible-argument
    #:explain-condition
    ;; request handling helpers
    ;; 
@@ -85,7 +87,6 @@
    ;; 
    #:*clack-request-env*
    #:make-clack-app
-   #:cannot-convert-argument
-   #:unconvertible-value))
+   ))
 
 (defpackage :snooze-types (:use) (:export #:content))
