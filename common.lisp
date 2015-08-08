@@ -274,17 +274,6 @@ remaining URI after these discoveries."
           when class
             append (expand class))))
 
-(defun arglist-compatible-p (resource args)
-  (handler-case
-      ;; FIXME: evaluate this need for eval, for security reasons
-      (let ((*read-eval* nil))
-        (handler-bind ((warning #'muffle-warning))
-          (eval `(apply (lambda ,(closer-mop:generic-function-lambda-list
-                                  resource)
-                          t)
-                        '(t t ,@args)))))
-    (error () nil)))
-
 (defun parse-content-type-header (string)
   "Return a symbol designating a SNOOZE-SEND-TYPE object."
   (find-content-class string))
@@ -308,6 +297,23 @@ remaining URI after these discoveries."
 ;;; Internal symbols of :SNOOZE
 ;;;
 (in-package :snooze)
+
+(defun check-arglist-compatible (resource args)
+  (handler-case
+      ;; FIXME: evaluate this need for eval, for security reasons
+      (let ((*read-eval* nil))
+        (handler-bind ((warning #'muffle-warning))
+          (eval `(apply (lambda ,(closer-mop:generic-function-lambda-list
+                                  resource)
+                          t)
+                        '(t t ,@args)))))
+    (error (e)
+      (error 'invalid-resource-arguments
+             :format-control
+             "Too many, too few, or unsupported query arguments for REST resource ~a"
+             :format-arguments
+             (list (resource-name resource))
+             :original-condition e))))
 
 (defun check-optional-args (opt-values &optional warn-p)
   (let ((nil-tail
@@ -485,7 +491,8 @@ remaining URI after these discoveries."
    :status-code 404
    :format-control "Resource does not exist"))
 
-(define-condition invalid-resource-arguments (http-condition) ()
+(define-condition invalid-resource-arguments (http-condition)
+  ((original-condition :initarg :original-condition :accessor original-condition))
   (:default-initargs
    :status-code 400
    :format-control "Resource exists but invalid arguments passed"))
@@ -680,16 +687,18 @@ EXPLAIN-CONDITION.")
             ;;
             (multiple-value-bind (converted-plain-args converted-keyword-args)
                 (uri-to-arguments *resource* relative-uri)
+                ;; (handler-case
+                    
+                ;;   (error (e)
+                ;;     (error 'invalid-resource-arguments
+                ;;            :format-control "Malformed arguments for resource ~a"
+                ;;            :format-arguments (list (resource-name *resource*))
+                ;;            :original-condition e)))
               (let ((converted-arguments (append converted-plain-args converted-keyword-args)))
-                ;; This is a double check that the arguments indeed
+                ;; Double check that the arguments indeed
                 ;; fit the resource's lambda list
-                ;; 
-                (unless (arglist-compatible-p *resource* converted-arguments)
-                  (error 'invalid-resource-arguments
-                         :format-control
-                         "Too many, too few, or unsupported query arguments for REST resource ~a"
-                         :format-arguments
-                         (list (resource-name *resource*))))
+                ;;
+                (check-arglist-compatible *resource* converted-arguments)
                 (let* ((content-types-to-try
                          (typecase verb
                            (snooze-verbs:sending-verb client-accepted-content-types)
@@ -730,7 +739,6 @@ EXPLAIN-CONDITION.")
   (flet ((probe (str &optional key)
            (handler-case
                (progn
-                 (slynk-trace-dialog:trace-format "probing ~a" str)
                  (let ((*read-eval* nil)
                        (*package* #.(find-package "KEYWORD")))
                    (read-from-string str)))
