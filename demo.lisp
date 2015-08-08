@@ -26,14 +26,13 @@
                                   unless (eq #\& (char (string sym) 0))
                                     collect sym)))
          
-         `(apply (get ',',name 'deftemplate)
-                 (lambda (,stream)
-                   (let ((*template-stream* ,stream))
-                     (with-html-output (,stream nil :indent t)
-                     ,@,body)))
-                 ,(cons 'list args))))))
-
-
+         `(with-output-to-string (*template-stream*)
+            (apply (get ',',name 'deftemplate)
+                   (lambda ()
+                     (let ((,stream *template-stream*))
+                       (with-html-output (,stream nil :indent t)
+                         ,@,body)))
+                   ,(cons 'list args)))))))
 
 (deftemplate with-basic-page (&key title)
   (:html
@@ -87,7 +86,7 @@
 (defmethod explain-condition ((c error) resource (ct snooze-types:text/html))
   (with-html-output (*template-stream*)
     (:i "An unexpected internal error has occured")
-    (:pre (str (explain-condition c resource 'snooze::full-backtrace)))))
+    (:pre (str (explain-condition-failsafe c resource nil t)))))
 
 (defmethod explain-condition ((c http-condition) resource (ct snooze-types:text/html))
   (with-html-output (*template-stream*)
