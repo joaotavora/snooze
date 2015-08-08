@@ -379,7 +379,7 @@ remaining URI after these discoveries."
                ;; And at runtime...
                ;;
                (check-optional-args ,optional-args-form)
-               (convert-arguments-for-client
+               (arguments-to-uri
                 (find-resource ',resource-sym)
                 (append
                  ,required-args-form
@@ -457,19 +457,20 @@ remaining URI after these discoveries."
 
 ;;; Some external stuff but hidden away from the main file
 ;;; 
+(defvar *explain-backtrace* nil)
 
-(defmethod explain-condition (condition resource (content-type (eql 'failsafe)))
+(defun explain-condition-failsafe (condition resource &optional original-condition with-backtrace)
   (declare (ignore resource))
-  (format nil "~a" condition))
-
-(defmethod explain-condition (condition resource (content-type (eql 'full-backtrace)))
-  (declare (ignore resource))
-  (format nil "Your SNOOZE was bitten by:~&~a"
-          (with-output-to-string (s)
-            (uiop/image:print-condition-backtrace condition :stream s))))
-
-(defmethod explain-condition (condition resource (content-type snooze-types:text/plain))
-  (explain-condition condition resource 'failsafe))
+  (with-output-to-string (s)
+    (format s "~&Your SNOOZE app was bitten by:~%~%  ~a" condition)
+    (when original-condition
+      (format s "~%~%EXPLAIN-CONDITION was trying to explain:~%~%  ~a" original-condition))
+    (when with-backtrace
+      (format s "~&Here's a backtrace of the condition ~%~%")
+      (uiop/image:print-condition-backtrace condition :stream s)
+      (when original-condition
+        (format s "~&And's a backtrace of the original condition ~%~%")
+        (uiop/image:print-condition-backtrace original-condition :stream s)))))
 
 (define-condition http-condition (simple-condition)
   ((status-code :initarg :status-code :initform (error "Must supply a HTTP status code.")
@@ -511,6 +512,9 @@ remaining URI after these discoveries."
   (:default-initargs
    :format-control "Resource exists but no such route"))
 
+(define-condition error-when-explaining (simple-error)
+  ((original-condition :initarg :original-condition :accessor original-condition)))
+
 (defmethod initialize-instance :after ((e http-error) &key)
   (assert (<= 500 (status-code e) 599) nil
           "An HTTP error must have a status code between 500 and 599"))
@@ -539,13 +543,19 @@ out with NO-SUCH-ROUTE."
                               ))))
 
 (defun call-brutally-explaining-conditions (fn)
-  (let (code condition)
-    (flet ((explain (how)
+  (let (code condition original-condition)
+    (flet ((explain (backtrace-p)
              (throw 'response
                (values code
-                       (explain-condition condition *resource* how)
+                       (explain-condition-failsafe condition
+                                                   *resource*
+                                                   original-condition
+                                                   backtrace-p)
                        (content-class-name 'text/plain)))))
-      (restart-case (handler-bind ((error
+      (restart-case (handler-bind ((error-when-explaining
+                                     (lambda (e)
+                                       (setq original-condition (original-condition e))))
+                                   (error
                                      (lambda (e)
                                        (setq code 500 condition e)
                                        (cond ((eq *catch-errors* :backtrace)
@@ -560,10 +570,10 @@ out with NO-SUCH-ROUTE."
                       (funcall fn))
         (explain-with-backtrace () :report
           (lambda (s) (format s "Explain ~a condition with full backtrace" code))
-          (explain 'full-backtrace))
+          (explain t))
         (failsafe-explain () :report
           (lambda (s) (format s "Explain ~a condition very succintly" code))
-          (explain 'failsafe))))))
+          (explain nil))))))
 
 (defun call-politely-explaining-conditions (client-accepts fn)
   (let (code
@@ -579,17 +589,24 @@ out with NO-SUCH-ROUTE."
                      (mapcar #'make-instance client-accepts)))
              (explain ()
                (throw 'response
-                 (values code
-                         (explain-condition condition *resource* accepted-type)
-                         (content-class-name accepted-type)))))
+                 (handler-case
+                     (values code
+                             (explain-condition condition *resource* accepted-type)
+                             (content-class-name accepted-type))
+                   (error (e)
+                     (error 'error-when-explaining
+                            :format-control "~a"
+                            :format-arguments (list e)
+                            :original-condition condition))))))
       (restart-case 
           (handler-bind ((condition
                            (lambda (c)
                              (setq condition c
                                    accepted-type (accepted-type condition))
                              (unless accepted-type
-                               (error "Cannot politely explain~%~a~%to client, who only accepts~%~a"
-                                      c client-accepts))))
+                               (error 'error-when-explaining
+                                      :format-control "No routes to politely explain condition to client"
+                                      :original-condition c))))
                          (http-condition
                            (lambda (c)
                              (setq code (status-code c))
