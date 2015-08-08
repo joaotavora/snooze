@@ -109,10 +109,6 @@ Because it's all done with CLOS, every route is a method, so you can.
 * use `:after`, `:before` and `:around` qualifiers
 * delete the route by deleting the method
 
-Snooze's only current backend implementation is based on the great
-[Hunchentoot][hunchentoot], but I'd welcome [pull requests][issues]
-that make it plug into other web server.
-
 Try it out
 ----------
 

@@ -798,3 +798,8 @@ EXPLAIN-CONDITION.")
   "Default value for *RESOURCES-FUNCTION*, which see."
   snooze-common:*all-resources*)
 
+(defmethod payload-as-string-1 ((backend (eql :clack)))
+  (let* ((len (getf *clack-request-env* :content-length))
+         (str (make-string len)))
+    (read-sequence str (getf *clack-request-env* :raw-body))
+    str))

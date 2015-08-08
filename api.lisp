@@ -156,22 +156,28 @@ Returns three values CODE, PAYLOAD and OUT-CONTENT-TYPE, which should
 be used by the application to craft a response to the request."
   (handle-request-1 uri method accept content-type))
 
-(defvar *clack-request-env* nil
-  "Bound in function made by MAKE-CLACK-APP to Clack environment.")
+(defvar *backend*)
+(setf (documentation '*backend* 'variable)
+      "Bound to a keyword identifying the handling server backend.")
+
+(defvar *clack-request-env*)
+(setf (documentation '*clack-request-env* 'variable)
+      "Bound in function made by MAKE-CLACK-APP to Clack environment.")
 
 (defun make-clack-app (&optional bindings)
   "Make a basic Clack app that calls HANDLE-REQUEST.
 
 Dynamically binds *CLACK-REQUEST-ENV* around every call to
 HANDLE-REQUEST so you can access the backend-specific from routes
-and/or EXPLAIN-CONDITION.
+and/or EXPLAIN-CONDITION. Also binds *BACKEND* to :CLACK.
 
 BINDINGS is an alist of (SYMBOL . VALUE) which is are also
 dynamically-bound around HANDLE-REQUEST. You can use it to pass values
 of special variables that affect Snooze, like *HOME-RESOURCE*,
 *RESOURCES-FUNCTION*, *RESOURCE-NAME-FUNCTION*, or
 *URI-CONTENT-TYPES-FUNCTION*."
-  (lambda (env) (let ((*clack-request-env* env))
+  (lambda (env) (let ((*clack-request-env* env)
+                      (*backend* :clack))
                   (progv
                       (mapcar #'car bindings)
                       (mapcar #'cdr bindings)
@@ -183,6 +189,8 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
                       `(,status-code
                         (:content-type ,payload-ct)
                         (,payload)))))))
+
+(defun payload-as-string () (payload-as-string-1 *backend*))
 
 
 
