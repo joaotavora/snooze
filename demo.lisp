@@ -10,15 +10,14 @@
                           #:with-html-output-to-string))
 (in-package #:snooze-demo)
 
-(defvar *template-stream*)
 (defmacro deftemplate (name (&rest lambda-list-args) &body who-args)
   "A micro HTML-templating framework"
-  (alexandria:with-gensyms (body function)
+  (alexandria:with-gensyms (body function stream-var)
     `(progn
        (setf (get ',name 'deftemplate)
-             (lambda (,function ,@lambda-list-args)
+             (lambda (,function ,stream-var ,@lambda-list-args)
                (macrolet ((yield () '(funcall ,function)))
-                 (with-html-output (*template-stream* nil :indent t)
+                 (with-html-output (,stream-var nil :indent t)
                    ,@who-args))))
 
        (defmacro ,name ((stream &rest args ,@lambda-list-args) &body ,body)
@@ -26,13 +25,12 @@
                                   unless (eq #\& (char (string sym) 0))
                                     collect sym)))
          
-         `(with-output-to-string (*template-stream*)
-            (apply (get ',',name 'deftemplate)
-                   (lambda ()
-                     (let ((,stream *template-stream*))
-                       (with-html-output (,stream nil :indent t)
-                         ,@,body)))
-                   ,(cons 'list args)))))))
+         `(apply (get ',',name 'deftemplate)
+                 (lambda ()
+                   (with-html-output (,stream nil :indent t)
+                     ,@,body))
+                 ,stream
+                 ,(cons 'list args))))))
 
 (deftemplate with-basic-page (&key title)
   (:html
@@ -58,7 +56,7 @@
                       (:textarea :class "edit-desc" :row "4" )))))))
 
 (defroute home (:get "text/html")
-  (with-basic-page (s :title "Snooze demo")
+  (with-basic-page (*standard-output* :title "Snooze demo")
     (:p :class "main" "Incredible home!")))
 
 (defresource sym (verb ct symbol)
