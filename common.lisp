@@ -457,8 +457,6 @@ remaining URI after these discoveries."
 
 ;;; Some external stuff but hidden away from the main file
 ;;; 
-(defvar *explain-backtrace* nil)
-
 (defun explain-condition-failsafe (condition resource &optional original-condition with-backtrace)
   (declare (ignore resource))
   (with-output-to-string (s)

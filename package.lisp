@@ -96,6 +96,7 @@
    #:default-resource-name
    #:search-for-extension-content-type
    #:all-defined-resources
-   #:payload-as-string))
+   #:payload-as-string
+   #:explain-condition-failsafe))
 
 (defpackage :snooze-types (:use) (:export #:content))

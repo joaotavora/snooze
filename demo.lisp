@@ -10,21 +10,22 @@
                           #:with-html-output-to-string))
 (in-package #:snooze-demo)
 
-(defmacro deftemplate (name (&rest lambda-list-args) &body who-args)
+(defmacro deftemplate (name (stream-var &rest lambda-list-args) &body who-args)
   "A micro HTML-templating framework"
-  (alexandria:with-gensyms (body function stream-var)
+  (alexandria:with-gensyms (body function)
     `(progn
        (setf (get ',name 'deftemplate)
              (lambda (,function ,stream-var ,@lambda-list-args)
                (macrolet ((yield () '(funcall ,function)))
                  (with-html-output (,stream-var nil :indent t)
-                   ,@who-args))))
+                   ,@who-args)
+                 nil)))
 
        (defmacro ,name ((stream &rest args ,@lambda-list-args) &body ,body)
-         (declare (ignore ,@(loop for sym in lambda-list-args
+         (declare (ignore ,@(loop for thing in lambda-list-args
+                                  for sym = (if (consp thing) (car thing) thing)
                                   unless (eq #\& (char (string sym) 0))
                                     collect sym)))
-         
          `(apply (get ',',name 'deftemplate)
                  (lambda ()
                    (with-html-output (,stream nil :indent t)
@@ -32,7 +33,16 @@
                  ,stream
                  ,(cons 'list args))))))
 
-(deftemplate with-basic-page (&key title)
+(defun some-cl-symbols (stream)
+  (with-html-output (stream)
+    (loop for sym being the external-symbols of :cl
+          repeat 100
+          do (htm
+              (:li :class "pure-menu-item"
+                   (:a :href (sym-path sym) :class "pure-menu-link"
+                       (fmt "~a" sym)))))))
+
+(deftemplate with-basic-page (stream &key title (fn #'some-cl-symbols))
   (:html
    (:head (:title (str (or title "Snooze")))
           (:meta :name "viewport" :content "width=device-width, initial-scale=1")
@@ -43,12 +53,7 @@
           (:div :class "pure-u-1-6 pure-menu"
                 (:span :class "demo-menu-heading pure-menu-heading" "Symbols")
                 (:ul :class "pure-menu-list demo-menu"
-                     (loop for sym being the external-symbols of :cl
-                           repeat 100
-                           do (htm
-                               (:li :class "pure-menu-item"
-                                    (:a :href (sym-path sym) :class "pure-menu-link"
-                                        (fmt "~a" sym)))))))
+                     (funcall fn stream)))
           (:div :class "content pure-u-5-6"
                 (:div :class "pure-menu-heading demo-description" "Description")
                 (:div :class "inner-content symdesc"
@@ -56,38 +61,43 @@
                       (:textarea :class "edit-desc" :row "4" )))))))
 
 (defroute home (:get "text/html")
-  (with-basic-page (*standard-output* :title "Snooze demo")
-    (:p :class "main" "Incredible home!")))
+  (with-output-to-string (s)
+    (with-basic-page (s :title "Snooze demo")
+      (:p :class "main" "Incredible home!"))))
 
 (defresource sym (verb ct symbol)
   (:genpath sym-path))
 
 (defroute sym (:get "text/html" sym)
   (let ((doc (documentation sym 'function)))
-    (with-basic-page (s :title (symbol-name sym))
-      (if doc
-          (htm (:pre (format s (cl-who:escape-string-minimal doc))))
-          (htm (:p :class "main"
-                   (fmt "There's no doc for ~a" sym)))))))
+    (with-output-to-string (s)
+      (with-basic-page (s :title (symbol-name sym))
+        (if doc
+            (htm (:pre (format s (cl-who:escape-string-minimal doc))))
+            (htm (:p :class "main"
+                     (fmt "There's no doc for ~a" sym))))))))
 
 (defmethod uri-to-arguments ((resource (eql #'sym)) uri)
   (handler-case (call-next-method)
     (unconvertible-argument (e)
       (http-condition 404 "No such symbol under ~a" (unconvertible-argument-value e)))))
 
+(defvar *explain-stream*)
+
 (defmethod explain-condition :around (c resource (ct snooze-types:text/html))
   (declare (ignore resource c))
-  (with-basic-page (s :title "Snooze error")
-    (:p :class "main"
-        (call-next-method))))
+  (with-output-to-string (*explain-stream*)
+    (with-basic-page (*explain-stream* :title "Snooze error")
+      (:p :class "main"
+          (call-next-method)))))
 
 (defmethod explain-condition ((c error) resource (ct snooze-types:text/html))
-  (with-html-output (*template-stream*)
+  (with-html-output (*explain-stream*)
     (:i "An unexpected internal error has occured")
     (:pre (str (explain-condition-failsafe c resource nil t)))))
 
 (defmethod explain-condition ((c http-condition) resource (ct snooze-types:text/html))
-  (with-html-output (*template-stream*)
+  (with-html-output (*explain-stream**)
     (:i (fmt "You have a ~a: ~a" (status-code c) c))
     (:pre (str (explain-condition c resource 'snooze::full-backtrace)))))
 
