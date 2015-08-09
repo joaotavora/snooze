@@ -112,7 +112,7 @@
           (:link :href "/snooze.css" :rel "stylesheet" :type "text/css"))
    (:body
     (:header :class "pure-g"
-             (:div :class "pure-u-1"
+             (:div :class "pure-u-1" :style (cl-css:inline-css '(color white text-align center))
                    (:h1 "Snooze docdemo!")))
     (:div :id "layout" :class "pure-g"
           (:div :class "pure-u-5-24 pure-menu"
@@ -134,8 +134,8 @@
         (:div :class "main symdesc"
               (if doc
                   (htm (:p (str (cl-who:escape-string-all doc))))
-                  (htm (:p (fmt "There's no doc for ~a" sym)))))
-        (:form :class "pure-form"
+                  (htm (:p (fmt "There's no doc for ~a" sym))))
+              (:form :class "pure-form"
                (:legend  (if doc
                              (fmt "Add your take on ~a" sym)
                              "Care to add some?"))
@@ -145,7 +145,7 @@
                           (:input :type "text" :class "pure-input-1" :placeholder "Your name")
                           (:input :type "text" :class "pure-input-1" :placeholder "Your email. For some gravatar-antics."))
                (:button :type "submit" :class "pure-button pure-input-1 pure-button-primary red-highlight"
-                        "Submit!"))))))
+                        "Submit!")))))))
 
 (defmethod uri-to-arguments ((resource (eql #'sym)) uri)
   (multiple-value-bind (plain-args keyword-args)

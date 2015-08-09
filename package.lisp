@@ -27,7 +27,7 @@
    #:delete-resource
    ;;
    #:*resource-name-function*
-   #:*resources-function*
+   #:*resource-filter*
    #:*home-resource*
    #:*uri-content-types-function*
    #:*all-resources*
@@ -39,7 +39,7 @@
   (:use #:cl #:snooze-common)
   (:import-from #:snooze-common
                 #:*resource-name-function*
-                #:*resources-function*
+                #:*resource-filter*
                 #:*home-resource*
                 #:*uri-content-types-function*
                 ;;
@@ -51,7 +51,7 @@
    ;; server configuration
    ;;
    #:*resource-name-function*
-   #:*resources-function*
+   #:*resource-filter*
    #:*home-resource*
    #:*uri-content-types-function*
    ;; server control
@@ -99,4 +99,4 @@
    #:payload-as-string
    #:explain-condition-failsafe))
 
-(defpackage :snooze-types (:use) (:export #:content))
+(defpackage :snooze-types (:use) (:export #:content #:type))

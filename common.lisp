@@ -124,33 +124,41 @@
   (:metaclass closer-mop:funcallable-standard-class))
 
 (defun resource-name (resource)
-  (string (closer-mop:generic-function-name resource)))
+  (closer-mop:generic-function-name resource))
 
-(defvar *all-resources* nil)
+(defvar *all-resources* (make-hash-table))
 
-(defun find-resource (designator &optional errorp)
+(defun find-resource (designator &key filter)
   (cond ((or (stringp designator)
              (keywordp designator))
-         (find designator *all-resources*
-               :key #'resource-name :test #'string-equal))
-        ((and (resource-p designator)
-              (find designator *all-resources*))
-         designator)
+         (maphash (lambda (k v)
+                    (when (and (string-equal (string k) (string designator))
+                               (or (not filter)
+                                   (funcall filter v)))
+                      (return-from find-resource v)))
+                  *all-resources*))
+        ((resource-p designator)
+         (find-resource (resource-name designator)
+                        :filter filter))
         ((and designator
-              (symbolp designator)
-              (fboundp designator)
-              (resource-p (symbol-function designator))
-              (find (symbol-function designator) *all-resources*))
-         (symbol-function designator))
-        (errorp
-         (error "~a doesn't designate a known RESOURCE" designator))))
+              (symbolp designator))
+         (let ((probe (gethash designator *all-resources*)))
+           (when (or (not filter)
+                     (funcall filter designator))
+             probe)))
+        (t
+         (error "~a ins't a resource designator" designator))))
 
-(defun delete-resource (resource)
-  (setf *all-resources* (delete resource *all-resources*)))
+(defun delete-resource (designator)
+  (let ((resource (find-resource designator)))
+    (if resource
+        (remhash (resource-name resource) *all-resources*)
+        (error "No such resource to delete!"))))
 
 (defmethod initialize-instance :after ((gf resource-generic-function) &rest args)
   (declare (ignore args))
-  (pushnew gf *all-resources*))
+  (setf (gethash (resource-name gf) *all-resources*)
+        gf))
 
 (defun probe-class-sym (sym)
   "Like CL:FIND-CLASS but don't error and return SYM or nil"
@@ -201,7 +209,7 @@
            (list (first type-spec) (type-designator-to-type (second type-spec))))
           ((or (keywordp type-spec)
                (stringp type-spec))
-           (list 'type (type-designator-to-type type-spec)))
+           (list 'snooze-types:type (type-designator-to-type type-spec)))
           (type-spec
            (list type-spec (type-designator-to-type t))))))
 
@@ -258,11 +266,11 @@ remaining URI after these discoveries."
                                  (plusp (length resource-name))
                                  (ignore-errors
                                   (quri:url-decode resource-name))))
-        (let ((*all-resources* (funcall *resources-function*)))
-          (values (find-resource (or resource-name
-                                     *home-resource*))
-                  (mapcar #'find-content-class uri-content-types)
-                  relative-uri))))))
+        (values (find-resource (or resource-name
+                                   *home-resource*)
+                               :filter *resource-filter*)
+                (mapcar #'find-content-class uri-content-types)
+                relative-uri)))))
 
 (defun content-classes-in-accept-string (string)
   (labels ((expand (class)
@@ -694,7 +702,9 @@ EXPLAIN-CONDITION.")
                 ;;            :format-control "Malformed arguments for resource ~a"
                 ;;            :format-arguments (list (resource-name *resource*))
                 ;;            :original-condition e)))
-              (let ((converted-arguments (append converted-plain-args converted-keyword-args)))
+              (let ((converted-arguments (append converted-plain-args
+                                                 (loop for (a . b) on converted-keyword-args
+                                                       collect a collect b))))
                 ;; Double check that the arguments indeed
                 ;; fit the resource's lambda list
                 ;;

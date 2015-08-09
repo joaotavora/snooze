@@ -33,14 +33,14 @@ client in a format accepted by the user agent as indicated in the
 plain text explanation with a full Lisp backtrace indicating where the
 condition originated.")
 
-(defvar *resources-function* 'all-defined-resources
-  "Compute list of all resources to consider when handling requests.
+(defvar *resource-filter* (constantly t)
+  "Tell if a resource should be considered when handling requests.
 
-Value is a function designator called with no arguments. This function
-should return a list of resources.
+Value is a function designator called with a resource. This function
+should return a boolean.
 
-The default value is ALL-DEFINED-RESOURCES, which returns a list of
-every resource defined so far by DEFRESOURCE and DEFROUTE.
+The default value is (CONSTANTLY T) matching every resource defined so
+far by DEFRESOURCE and DEFROUTE.
 
 Can be let-bound to restrict searches by a particular server to a
 specific set of resources.")
@@ -112,9 +112,12 @@ server.")
 RELATIVE-URI is a string, where everything but the part designating
 RESOURCE has been kept untouched (and potentially URI-encoded)
 
-Should return two values: a list of \"plain\" arguments and a plist of
-keyword arguments. When appended together they should fit RESOURCE's
-lambda-list.
+Should return two values: a list of \"plain\" arguments and an
+alist (*not* a plist) used as keyword arguments.
+
+It's reasonable for user-written specializaions of this method to
+error out with 400 (malformed) or 404 not found status codes. At any
+rate.
 
 This method is the inverse of ARGUMENTS-TO-URI
 

@@ -3,105 +3,82 @@ Snooze
 
 _Snooze_ is a framework for building REST web services in Common Lisp. 
 
-Here's a small sample:
+Here's a very short sample with a `GET` and `PUT` routes.
 
 ```lisp
-(defun find-function-or-lose (symbol package)
-  (let ((probe (find-symbol (string symbol) package)))
-    (if (fboundp probe)
-        probe
-        (snooze:http-condition 404 "Sorry, no ~a in ~a" symbol package))))
+(defpackage #:readme-demo (:use #:cl #:snooze))
+(in-package #:readme-demo)
 
-(snooze:defroute fundoc (:get "text/plain" symbol &key (package :cl))
-  (documentation (find-function-or-lose symbol package) 'function))
+(defun find-symbol-or-lose (name package)
+  (or (find-symbol (string name) (find-package package))
+      (http-condition 404 "Sorry, no such symbol")))
 
-(snooze:defroute fundoc (:put "text/plain" symbol &key (package :cl))
-  (setf (documentation (find-function-or-lose symbol package) 'function)
+(defroute lispdoc (:get "text/*" name &key (package :cl) (type 'function))
+  (or (documentation (find-symbol-or-lose name package) type)
+      (http-condition 404 "Sorry no ~a doc for ~a" type name)))
+
+(defroute lispdoc (:put "text/plain" name &key (package :cl) (type 'function))
+  (setf (documentation (find-symbol-or-lose name package) type)
         (payload-as-string)))
 
 (clack:clackup (snooze:make-clack-app) :port 9003)
 ```
 
-That's it: no regexps to setup or funny syntaxes to learn. Write your
-REST routes like you would write a Lisp function. You can now browse to
+No regular expressions or funny syntax: routes not only *look like*
+functions, they *are* functions.
+
+Now you get your routes and also some error reporting for free:
 
 ```HTTP
-http://localhost:9003/fundoc/defun
-http://localhost:9003/fundoc/defroute?package=snooze
+GET /lispdoc/defun                         => 200 OK
+GET /lispdoc/funny-syntax?package=snooze   => 404 Not found
+GET /lispdoc/in/?valid=args                => 400 Bad Request
+                                           
+GET /lispdoc/defun                         => 406 Not Acceptable 
+Accept: application/json
+
+GET /lispdoc/defun                         => 200 OK (can serve any text)
+Accept: application/json,text/html
+                                           
+PUT /lispdoc/scan?package=cl-ppcre         => 200 OK 
+Content-type: text/plain
+
+PUT /lispdoc/defun                         => 415 Unsupported Media Type 
+Content-type: application/json
+
+DELETE /lispdoc/defun                      => 501 Not implemented
+GET /lispdoc/scan?package=gibberish        => 500 Internal Server Error
 ```
 
-Also, you get some error reporting for free:
-
-```HTTP
-GET /fundoc/defun                   => 200 OK
-GET /fundoc/scan?package=cl-ppcre   => 200 OK
-GET /fundoc/in/?valid=args          => 400 Bad Request
-                                     
-GET /fundoc/defun                    
-Accept: application/json,text/html  => 406 Not Acceptable
-                                     
-PUT /fundoc/defun                    
-Content-type: text/plain            => 200 OK
-                                     
-PUT /fundoc/defun                    
-Content-type: application/json      => 415 Unsupported Media Type
-                                     
-DELETE /fundoc/defun                => 501 Not implemented
-
-GET /fundoc/scan?package=gibberish  => 500 Internal Server Error
-
-```
+Read on for the rationale, or checkout the [tutorial](#tutorial)
 
 Rationale
 ---------
 
-_Snooze_ models HTTP and the operations of Representation State
-Transfer (REST) as **function calls** on resources.
-
-It maps *HTTP concepts* like resources, HTTP verbs, content-types, URI
-queries, and status codes to *Common Lisp concepts* like generic
-functions, specialized-lambda-lists, and conditions.
-
-It relieves the programmer of writing application code to:
+_Snooze_ relieves the programmer of writing application code to:
 
 * dispatch on HTTP methods and content-types;
 * decode the URI to find arguments;
-* Check common 400-like situations like missing resources or
-content-types mismatch;
-* generate and encode a compatible URIs 
+* check for common 400-like situations;
+* generate and encode a compatible URIs;
+* politely handle failure conditions;
 
 There are other such systems for Common Lisp, but they tend to make
-you learn extra route-definition syntax.
+you learn [extra](https://github.com/fukamachi/caveman#routing)
+[route-definition](http://restas.lisper.ru/en/manual/routes.html#routes)
+[syntax](http://8arrow.org/ningle/).
 
-But in _Snooze_ `defroute` is very close to (and completely compatible
-with) `defmethod`. In fact you can even use `defmethod` if you prefer.
+_Snooze_ maps [REST/HTTP](https://en.wikipedia.org/wiki/REST) concepts
+to Common Lisp concepts:
 
-So, for example, `GET`ting the list of the Beatles in JSON format by
-order of most guitars owned is asking for the URI
-`/beatles?sort-by=number_of_guitars`, which matches the following
-function:
+| HTTP concept                     | Common Lisp concept       |
+| :------------------------------- | -------------------------:|
+| verbs (`GET`, `PUT`, `DELETE`, `etc`)  | CLOS argument specializer |
+| `Accept:` and `Content-Type:`    | CLOS argument specializer |
+| URL queries (`?param=value&p2=v2`) | keyword arguments         |
+| status codes (`404`, `500`, etc)     | conditions                |
 
-```lisp
-(snooze:defroute beatles (:get "application/json" &key (sort-by #'age))
-  (jsonify (sort #'> (all-the-beatles) :key sort-by)))
-```
-
-This is the same as writing:
-
-```lisp
-(cl:defmethod beatles ((v snooze-verbs:get) (c snooze-types:application/json) &key (sort-by #'age))
-  (jsonify (sort #'> (all-the-beatles) :key sort-by)))
-
-```
-
-Content-type matching is automatically taken care of: only
-`application/json`-accepting requests are accepted by this
-snippet. Argument parsing in the URI, including `?param=value` and
-`#fragment` bits is also automatically handled (but can be customized
-if you don't like the default).
-
-
-Because it's all done with CLOS, every route is a method, so you can.
+Because it's all CLOS, every route is a method, so you can.
 
 * `cl:trace` it like a regular function
 * find its definition with `M-.`
@@ -109,8 +86,8 @@ Because it's all done with CLOS, every route is a method, so you can.
 * use `:after`, `:before` and `:around` qualifiers
 * delete the route by deleting the method
 
-Try it out
-----------
+Tutorial
+--------
 
 This assumes you're using a recent version of [quicklisp][quicklisp]
 
@@ -118,103 +95,74 @@ This assumes you're using a recent version of [quicklisp][quicklisp]
 (push "path/to/snoozes/parent/dir" quicklisp:*local-project-directories*)
 (ql:quickload :snooze)
 ```
-now create some Lisp file with
+
+Consider the sample [above](#snooze) and let's pick up where we left
+off. We start by serving docstrings in HTML. Because routes are really
+only CLOS methods, the easiest way is:
 
 ```lisp
-(defpackage :snooze-demo (:use :cl))
-(in-package :snooze-demo)
-
-(defvar *todo-counter* 0)
-
-(defclass todo ()
-  ((id :initform (incf *todo-counter*) :accessor todo-id)
-   (task :initarg :task :accessor todo-task)
-   (done :initform nil :initarg :done :accessor todo-done)))
-
-(defparameter *todos* 
-  (list (make-instance 'todo :task "Wash dishes")
-        (make-instance 'todo :task "Scrub floor")
-        (make-instance 'todo :task "Doze off" :done t)))
-
-(defun find-todo-or-lose (id)
-  (or (find id *todos* :key #'todo-id)
-      (error 'snooze:404)))
-
-(snooze:defroute todo (:get "text/plain" id)
-  (let ((todo (find-todo-or-lose id)))
-    (format nil "~a: ~a ~a" (todo-id todo) (todo-task todo)
-            (if (todo-done todo) "DONE" "TODO"))))
-
-(snooze:defroute todos (:get "text/plain")
-  (format nil "~{~a~^~%~}" (mapcar #'todo-task *todos*)))
-
-(clack:clackup (make-clack-app) :port 9003)
+(defroute lispdoc :around (:get "text/html" name &key &allow-other-keys)
+  (format nil "<h1>Docstring for ~a</h1><p>~a</p>"
+          name
+          (call-next-method)))
 ```
 
-And connect to "http://localhost:4242/todos" to see a list of
-`todo`'s.
+Though you should probably escape the HTML with something like
+[cl-who:escape-string-all](http://weitz.de/cl-who/#escape-string-all).
 
-CLOS-based tricks
------------------
+Now let's accept `PUT` requests with JSON content:
 
-Routes are really only CLOS methods: `defroute` little more than
-`defmethod`. For example, to remove particular route just delete the
-particular method.
-
-Here's the method that updates a `todo`'s data using a PUT request
-
-
-```lisp
-(snooze:defroute todo (:put (payload "text/plain") id)
-  (let ((todo (find-todo-or-lose id)))
-    (setf (todo-task todo) (payload-as-string))))
+```
+(defroute lispdoc (:put "application/json" name &key package doctype)
+  (let* ((json (json:decode-json-from-string
+                (payload-as-string)))
+         (doctype (or (cdr (assoc :doctype json)) doctype))
+         (package (or (cdr (assoc :package json)) package))
+         (sym (find-symbol-or-lose name package))
+         (docstring (cdr (assoc :docstring json))))
+    (if (and sym docstring doctype)
+        (setf (documentation sym doctype) docstring)
+        (http-condition 400 "Not acceptable"))))
 ```
 
-To accept any kind of text, not just plain text, use `text/*` as a
-specializer.
-
-```lisp
-(snooze:defroute todo (:put (payload "text/*") id)...)
-```
-
-You can still keep your specialized `text/plain`: it'll get called to
-handle plaintext specially, perhaps delegating to the more generic
-version using `call-next-method`.
-
-Now to make the route accept JSON content:
-
-```lisp
-(snooze:defroute todo (:put (payload "application/json") id)
-  (let ((todo (find-todo-or-lose id)))
-    (setf (todo-task todo)
-          (cdr (assoc :task
-                      (json:decode-json-from-string
-                       (payload-as-string)))))))
-```
-
-There is a little bit of repetition there. Perhaps its better to find
-the `todo` by its `id` number just once.
-
-```lisp
-(snooze:defroute todo :around (verb payload id)
-  (call-next-method verb payload (find-todo-or-lose id)))
-
-(snooze:defroute todo (:put (payload "text/plain") todo)
-  (setf (task todo) (payload-as-string)))
-
-(snooze:defroute todo (:put (payload "application/json") todo)
-  (setf (task todo)
-        (cdr (assoc :task
-                    (json:decode-json-from-string
-                     (payload-as-string))))))
-```
-
-Tighter methods
+Tighter routes
 ---------------
 
-If you don't like the `:around` trick, there's a tighter way to
-control how arguments get converted before being passed to routes,
-using `snooze:uri-to-arguments`
+The 4 routes we have until now all use the `find-symbol-or-lose`
+helper, and they also have that `package` keyword arg. They could be
+simply functions of a symbol. After all, Lisp already has a pretty
+good way of designating symbols and packages using the `:` colon
+syntax.
+
+Wouldn't it be nicer if we could write routes like:
+
+```lisp
+(defroute lispdoc (:get "text/*" symbol &key (doctype 'function))
+  (or (documentation symbol doctype)
+      (http-condition 404 "Sorry no ~a doc for ~a" doctype symbol)))
+```
+
+This will work just fine as long as the client asks for routes like
+`lispdoc/common-lisp%3Adefun` or `lispdoc/snooze%3Adefroute` and *not*
+the more human-readable REST routes we had above.
+
+Because we might have already published these routes to the world, we
+need to change the implementation without changing the interface.
+
+
+
+
+
+ We can use `defresourc` to get a
+generator
+
+
+These
+are not very easily human readable
+
+But what if we've already published the
+
+
 
 ```lisp
 (defmethod snooze:uri-to-arguments ((resource (eql #'todo)) uri)
