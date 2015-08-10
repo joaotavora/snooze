@@ -470,10 +470,12 @@ remaining URI after these discoveries."
 
 
 ;;; Some external stuff but hidden away from the main file
-;;; 
+;;;
+(defvar *print-conditions-verbosely* nil)
+
 (defmethod explain-condition-failsafe (condition resource &optional verbose-p)
   (declare (ignore resource))
-  (let* ((original-condition (and (typep condition 'error-when-explaining)
+  (let* ((original-condition (and (typep condition 'resignalled-condition)
                                   (original-condition condition)))
          (status-code (or (and original-condition
                                (typep original-condition 'http-condition)
@@ -481,16 +483,8 @@ remaining URI after these discoveries."
                           500)))
     (with-output-to-string (s)
       (cond (verbose-p
-             (cond (original-condition
-                    (format s "~&SNOOZE:EXPLAIN-CONDITION was trying to explain:~%~%  ~a"
-                            original-condition)
-                    (format s "~%~%when it was bitten by:~%~%"))
-                   (t
-                    (format s "~&SNOOZE was bitten by:~%~%")))
-             (format s "  ~a" condition)
-             (when original-condition
-               (format s "~&~%Here's a backtrace of the original condition ~%~%")
-               (uiop/image:print-condition-backtrace original-condition :stream s))
+             (let ((*print-conditions-verbosely* t))
+               (format s "~a" condition))
              (format s "~&~%Here's a backtrace that bit me ~%~%")
              (uiop/image:print-condition-backtrace condition :stream s))
             (t
@@ -529,7 +523,8 @@ remaining URI after these discoveries."
                        :initform (error "Must supply an original condition")
                        :accessor original-condition)))
 
-(define-condition invalid-uri-structure (invalid-resource-arguments resignalled-condition) ()
+(define-condition invalid-uri-structure (invalid-resource-arguments resignalled-condition)
+  ((invalid-uri :initarg :invalid-uri :initform (error "Must supply the invalid URI") :accessor invalid-uri))
   (:default-initargs
    :format-control "The URI structure cannot be converted into arguments"))
 
@@ -724,10 +719,11 @@ EXPLAIN-CONDITION.")
                 (handler-bind
                     ((error (lambda (e)
                               (when *catch-errors*
-                                (error 'unconvertible-uri-structure
+                                (error 'invalid-uri-structure
                                        :format-control "Caught ~a in URI-TO-ARGUMENTS"
                                        :format-arguments (list (type-of e))
-                                       :original-condition e)))))
+                                       :original-condition e
+                                       :invalid-uri relative-uri)))))
                   (uri-to-arguments *resource* relative-uri))
               (let ((converted-arguments (append converted-plain-args
                                                  (loop for (a . b) in converted-keyword-args
@@ -869,3 +865,21 @@ EXPLAIN-CONDITION.")
   (format s "~a: ~?" (status-code c)
           (simple-condition-format-control c)
           (simple-condition-format-arguments c)))
+
+(defmethod print-object :after ((c resignalled-condition) s)
+  (when *print-conditions-verbosely*
+    (format s "~&~%Here's a backtrace of the original condition ~%~%")
+    (uiop/image:print-condition-backtrace (original-condition c) :stream s)))
+
+(defmethod print-object ((c error-when-explaining) s)
+  (format s "~&SNOOZE:EXPLAIN-CONDITION was trying to explain:~%~%  ~a"
+                            (original-condition c))
+  (format s "~%~%when it was bitten by:~%~%  ~?"
+          (simple-condition-format-control c)
+          (simple-condition-format-arguments c)))
+
+(defmethod print-object ((c invalid-uri-structure) s)
+  (format s "~&SNOOZE:URI-TO-ARGUMENTS was trying to decode:~%~%  ~a"
+                            (invalid-uri c))
+  (format s "~%~%when it was bitten by:~%~%  ~a"
+          (original-condition c)))
