@@ -307,21 +307,24 @@ remaining URI after these discoveries."
 (in-package :snooze)
 
 (defun check-arglist-compatible (resource args)
-  (handler-case
-      ;; FIXME: evaluate this need for eval, for security reasons
-      (let ((*read-eval* nil))
-        (handler-bind ((warning #'muffle-warning))
-          (eval `(apply (lambda ,(closer-mop:generic-function-lambda-list
-                                  resource)
-                          t)
-                        '(t t ,@args)))))
-    (error (e)
-      (error 'invalid-resource-arguments
-             :format-control
-             "Too many, too few, or unsupported query arguments for REST resource ~a"
-             :format-arguments
-             (list (resource-name resource))
-             :original-condition e))))
+  (let ((lambda-list (closer-mop:generic-function-lambda-list
+                      resource)))
+    (handler-case
+        ;; FIXME: evaluate this need for eval, for security reasons
+        (let ((*read-eval* nil))
+          (handler-bind ((warning #'muffle-warning))
+            (eval `(apply (lambda ,lambda-list
+                            t)
+                          '(t t ,@args)))))
+      (error (e)
+        (error 'incompatible-lambda-list
+               :actual-args args
+               :lambda-list lambda-list
+               :format-control
+               "Too many, too few, or unsupported query arguments for REST resource ~a"
+               :format-arguments
+               (list (resource-name resource))
+               :original-condition e)))))
 
 (defun check-optional-args (opt-values &optional warn-p)
   (let ((nil-tail
@@ -362,18 +365,17 @@ remaining URI after these discoveries."
            ;;
            ;;
            (keyword-arguments-form
-             `(alexandria:flatten
-               (remove-if #'null
-                          (list
-                           ,@(loop for (kw-and-sym default supplied-p)
-                                     in augmented-kwargs
-                                   for (nil sym) = kw-and-sym
-                                   collect `(list (intern (symbol-name ',sym) (find-package :KEYWORD))
-                                                  (if ,supplied-p
-                                                      ,sym
-                                                      (or ,sym
-                                                          ,default)))))
-                          :key #'second))))
+             `(remove-if #'null
+                         (list
+                          ,@(loop for (kw-and-sym default supplied-p)
+                                    in augmented-kwargs
+                                  for (nil sym) = kw-and-sym
+                                  collect `(cons (intern (symbol-name ',sym) (find-package :KEYWORD))
+                                                 (if ,supplied-p
+                                                     ,sym
+                                                     (or ,sym
+                                                         ,default)))))
+                         :key #'cdr)))
       ;; Optional args are checked at macroexpansion time
       ;;
       (check-optional-args (mapcar #'second optional) 'warn-p)
@@ -512,9 +514,15 @@ remaining URI after these discoveries."
    :status-code 400
    :format-control "Resource exists but invalid arguments passed"))
 
-(define-condition unconvertible-argument (invalid-resource-arguments)
+(define-condition unconvertible-argument (invalid-resource-arguments resignalled-condition)
   ((unconvertible-argument-value :initarg :unconvertible-argument-value :accessor unconvertible-argument-value)
    (unconvertible-argument-key :initarg :unconvertible-argument-key :accessor unconvertible-argument-key))
+  (:default-initargs
+   :format-control "An argument in the URI cannot be read"))
+
+(define-condition incompatible-lambda-list (invalid-resource-arguments resignalled-condition)
+  ((lambda-list :initarg :lambda-list :initform (error "Must supply :LAMBDA-LIST") :accessor lambda-list)
+   (actual-args :initarg :actual-args :initform (error "Must supply :ACTUAL-ARGS") :accessor actual-args))
   (:default-initargs
    :format-control "An argument in the URI cannot be read"))
 
@@ -779,8 +787,9 @@ EXPLAIN-CONDITION.")
                (error 'unconvertible-argument
                       :unconvertible-argument-value str
                       :unconvertible-argument-key key
-                      :format-control "Malformed arg for resource ~a: ~a"
-                      :format-arguments (list (resource-name *resource*) e))))))
+                      :original-condition e
+                      :format-control "Malformed arg for resource ~a"
+                      :format-arguments (list (resource-name *resource*)))))))
     (when relative-uri
       (let* ((relative-uri (ensure-uri relative-uri))
              (path (quri:uri-path relative-uri))
@@ -799,7 +808,7 @@ EXPLAIN-CONDITION.")
                                                                :keyword)
                                                        (quri:url-decode undecoded-value-string))))
                             (when fragment
-                              (list 'snooze:fragment fragment)))))
+                              `((snooze:fragment . ,fragment))))))
         (values
          (mapcar #'probe (mapcar #'quri:url-decode plain-args))
          (loop for (key . value) in keyword-args
@@ -883,3 +892,13 @@ EXPLAIN-CONDITION.")
                             (invalid-uri c))
   (format s "~%~%when it was bitten by:~%~%  ~a"
           (original-condition c)))
+
+(defmethod print-object ((c incompatible-lambda-list) s)
+  (format s "~&~?" (simple-condition-format-control c)
+          (simple-condition-format-arguments c))
+  (format s "~&Trying to fit~%  ~a~%to the lambda list~%  ~a"
+          (actual-args c) (lambda-list c))
+  (format s "~%~%when it was bitten by:~%~%  ~a"
+          (original-condition c)))
+
+
