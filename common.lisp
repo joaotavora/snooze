@@ -435,6 +435,13 @@ remaining URI after these discoveries."
          ,@declarations
          ,@remaining))))
 
+(defun defgenpath-1 (function resource)
+  (make-genpath-form function resource
+                     (nthcdr 2 (closer-mop:generic-function-lambda-list
+                                (let ((probe (find-resource resource)))
+                                  (assert probe nil "Cannot find the resource ~a" resource)
+                                  probe)))))
+
 (defun defresource-1 (name lambda-list options)
   (let* ((genpath-form)
          (defgeneric-args
@@ -465,10 +472,14 @@ remaining URI after these discoveries."
                                              (ensure-atom argspec))
                                          lambda-list)))
     `(progn
+       ,@(let ((probe (find :genpath options :key #'car)))
+           (when probe
+             `((defgenpath ,(second probe) ,name))))
        ,@(if genpath-form `(,genpath-form))
        (defgeneric ,name ,simplified-lambda-list
          (:generic-function-class resource-generic-function)
          ,@defgeneric-args))))
+
 
 
 ;;; Some external stuff but hidden away from the main file

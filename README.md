@@ -28,7 +28,8 @@ via HTTP:
 No regular expressions, annotations or otherwise funny syntax: routes
 not only *look like* functions, they *are* functions.
 
-Here are the routes thus defined (and some error reporting for free):
+Here are the routes thus defined and some of the error reporting you
+get for free:
 
 ```HTTP
 GET /lispdoc/defun                         => 200 OK
@@ -38,17 +39,11 @@ GET /lispdoc/in/?valid=args                => 400 Bad Request
 GET /lispdoc/defun                         => 406 Not Acceptable 
 Accept: application/json
 
-GET /lispdoc/defun                         => 200 OK (can serve any text)
-Accept: application/json,text/html
-                                           
 PUT /lispdoc/scan?package=cl-ppcre         => 200 OK 
 Content-type: text/plain
 
 PUT /lispdoc/defun                         => 415 Unsupported Media Type 
 Content-type: application/json
-
-DELETE /lispdoc/defun                      => 501 Not implemented
-GET /lispdoc/scan?package=gibberish        => 500 Internal Server Error
 ```
 
 Read on for the rationale, or checkout the [tutorial](#tutorial)
@@ -145,14 +140,22 @@ request's body.
         (http-condition 400 "JSON missing some properties"))))
 ```
 
-
-
-
 ### URI generation
 
-Another trick is to coalesce all the `defroute` definitions into a
-single `defresource` definitions, much like `defmethod` can be in a
-`defgeneric`:
+_Snooze_ can generate the URIs, as astring, the URIs you serve in
+your application, so we can do this.
+
+(defroute lispdoc (:get "text/*" name &key (package :cl) (type 'function))
+  (or (documentation (find-symbol-or-lose name package) type)
+      (http-condition 404 "Sorry no ~a doc for ~a" type name)))
+
+
+The "no doc for <symbol>" message isn't very helpful, particularly
+when the client missed looking for `variable` documentation to `*`
+
+It's Another trick is to coalesce all the `defroute` definitions
+into a single `defresource` definitions, much like `defmethod` can be
+in a `defgeneric`:
 
 ```lisp
 (snooze:defresource todo (verb content-type id)

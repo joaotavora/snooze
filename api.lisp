@@ -17,6 +17,11 @@ ARGS are just as in CL:DEFMETHOD with the exception that its
 specialized-lambda-list portion accepts some simplifications."
   (defroute-1 name args))
 
+(defmacro defgenpath (resource function)
+  "Define FUNCTION as a path-generating function for RESOURCE.
+RESOURCE is a symbol or a string designating a resource"
+  (defgenpath-1 function resource))
+
 (defparameter *catch-http-conditions* t
   "If non-NIL, catch HTTP conditions and explain them to the client.
 
