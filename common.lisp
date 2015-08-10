@@ -787,13 +787,11 @@ EXPLAIN-CONDITION.")
 
 (defmethod uri-to-arguments (resource relative-uri)
   "Default method of URI-TO-ARGUMENTS, which see."
-  (declare (ignore resource))
   (flet ((probe (str &optional key)
            (handler-case
                (progn
-                 (let ((*read-eval* nil)
-                       (*package* #.(find-package "KEYWORD")))
-                   (read-from-string str)))
+                 (let ((*read-eval* nil))
+                   (read-for-resource resource str)))
              (error (e)
                (error 'unconvertible-argument
                       :unconvertible-argument-value str
@@ -826,25 +824,33 @@ EXPLAIN-CONDITION.")
                collect (cons key (probe value key))))))))
 
 (defmethod arguments-to-uri (resource plain-args keyword-args)
-  (flet ((encode (thing)
+  (flet ((encode (thing &optional keyword)
            (quri:url-encode
-            (cond ((keywordp thing)
+            (cond (keyword
                    (string-downcase thing))
                   (t
-                   (let ((*package* #.(find-package "KEYWORD"))
-                         (*print-case* :downcase))
-                     (write-to-string thing)))))))
+                   (write-for-resource resource thing)
+                   )))))
   (let* ((plain-part (format nil "/~{~a~^/~}"
                                 (mapcar #'encode plain-args)))
          (query-part (and keyword-args
                           (format nil "?~{~a=~a~^&~}"
-                                  (mapcar #'encode (loop for (k . v) in keyword-args
-                                                         collect k collect v))))))
+                                  (loop for (k . v) in keyword-args
+                                        collect (encode k t) collect (encode v))))))
     (let ((string (format nil "/~a~a~a"
                           (string-downcase (resource-name resource))
                           (or plain-part "")
                           (or query-part ""))))
       string))))
+
+(defmethod read-for-resource (resource string)
+  (let ((*package* (symbol-package (resource-name resource))))
+    (read-from-string string)))
+
+(defmethod write-for-resource (resource object)
+  (let ((*package* (symbol-package (resource-name resource)))
+        (*print-case* :downcase))
+    (write-to-string object)))
 
 (defun default-resource-name (uri)
   "Default value for *RESOURCE-NAME-FUNCTION*, which see."

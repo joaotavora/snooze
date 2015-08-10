@@ -142,54 +142,121 @@ request's body.
 
 ### URI generation
 
-_Snooze_ can generate the URIs, as astring, the URIs you serve in
-your application, so we can do this.
-
-(defroute lispdoc (:get "text/*" name &key (package :cl) (type 'function))
-  (or (documentation (find-symbol-or-lose name package) type)
-      (http-condition 404 "Sorry no ~a doc for ~a" type name)))
-
-
-The "no doc for <symbol>" message isn't very helpful, particularly
-when the client missed looking for `variable` documentation to `*`
-
-It's Another trick is to coalesce all the `defroute` definitions
-into a single `defresource` definitions, much like `defmethod` can be
-in a `defgeneric`:
+_Snooze_ can generate the URIs for a resource. To get a function that
+does that do:
 
 ```lisp
-(snooze:defresource todo (verb content-type id)
-  (:genpath todo-path)
-  (:route (:get "text/*" id)
-          (todo-task (find-todo-or-lose id)))
-  (:route (:get "text/html" id)
-          (format nil "<b>~a</b>" (call-next-method)))
-  (:route (:get "application/json" id)
-          ;; you should use some json-encoding package here, tho
-          (let ((todo (find-todo-or-lose id)))
-            (format nil "{id:~a,task:~a,done:~a}"
-            (todo-id todo) (todo-task todo) (todo-done todo)))))
+(defgenpath lispdoc lispdoc-path)
 ```
 
-Using `defresource` gives you another bonus, in the form of an
-URL-generating function for free, in this case `todo-url`, to use in
-your view code:
+The generated function has an arglist matching your route's arguments:
 
 ```lisp
-SNOOZE-DEMO> (todo-url 3)
-"todo/3"
+(lispdoc-path 'defroute :package 'snooze)
+  ;; => "/lispdoc/defroute?package=snooze"
+(lispdoc-path 'defun)
+  ;; => "/lispdoc/defun"
+(lispdoc-path '*standard-output* :doctype 'variable)
+  ;; => "/lispdoc/%2Astandard-output%2A?doctype=variable"
+(lispdoc-path '*standard-output* :FOO 'hey)
+  ;; error! unknown &KEY argument: :FOO
 ```
+
+Notice the automatic URI-encoding of the `*` character and how the
+function errors on invalid keyword arguments that would produce an
+invalid route.
+
+Path generators are useful, for example, when write HTML links to your
+resources. In our example, let's use it to guide the user to the
+correct URL when a 404 happens:
+
+```lisp
+(defun doc-not-found-message (name package doctype)
+  (let* ((othertype (if (eq doctype 'function) 'variable 'function))
+         (otherdoc (documentation (find-symbol-or-lose name package) othertype)))
+    (with-output-to-string (s)
+      (format s "Sorry no ~a doc for ~a." doctype name)
+      (when otherdoc
+        (format s "~&But try <a href=~a>here</a>"
+                (lispdoc-path name :package package :doctype othertype))))))
+
+(defroute lispdoc (:get "text/html" name &key (package :cl) (doctype 'function))
+  (or (documentation (find-symbol-or-lose name package) doctype)
+      (http-condition 404 (doc-not-found-message name package doctype))))
+```
+
+If you now point your browser to:
+
+```
+http://localhost:9003/lispdoc/%2Astandard-output%2A?doctype=variable
+```
+
+You should see a nicer 404 error message. Except you don't, because by
+default _Snooze_ is very terse with error messages and we haven't told it
+not to be. The next sections explains how to change that.
+
+Controlling errors
+------------------
+
+Errors and unexpected situations are part of normal HTTP life. Many
+websites and REST services not only return an HTTP status code, but
+also serve information about the conditions that lead to an error, be
+it in a pretty HTML error page or a JSON object describing the
+problem.
+
+Snooze tries to make it possible to precisely control what information
+gets sent to the client. It uses a generic function and two variables:
+
+* `explain-condition (condition resource content-type)`
+* `*catch-errors*`
+* `*catch-http-conditions*`
+
+Out of the box, there are no methods on `explain-condition` and the
+first two variables are set to `t` by default.
+
+This means that any HTTP condition or a Lisp error in your application
+will generate a very terse reply in plain-text containing only the
+status code and the standard reason phrase.
+
+You can amend this selectively by writing an `explain-condition`
+methods explain HTTP conditions politely in HTML:
+
+```lisp
+(defmethod explain-condition ((condition http-condition)
+                              (resource (eql #'lispdoc))
+                              (ct snooze-types:text/html))
+               (with-output-to-string (s)
+                 (format s "<h1>Terribly sorry</h1><p>You might have made a mistake, I'm afraid</p>")
+                 (format s "<p>~a</p>" condition)))
+```
+
+You can use the same technique to explain *any* error like so:
+
+```lisp
+(defmethod explain-condition ((error error) (resource (eql #'lispdoc)) (ct snooze-types:text/html))
+               (with-output-to-string (s)
+                 (format s "<h1>Oh dear</h1><p>It seems I've messed up somehow</p>")))
+```
+
+Finally, you can play around with `*catch-errors*` and
+`*catch-http-conditions` (see their docstrings). I normally leave
+`*catch-http-conditions*` set to `t` and `*catch-errors*` set to
+either `:verbose` or `nil` depending on whether I want to do debugging
+in the browser or in Emacs.
 
 Tighter routes
 ---------------
 
-The 4 routes we have until now all use the `find-symbol-or-lose`
-helper, and they also have that `package` keyword arg. They could be
-simply functions of a symbol. After all, Lisp already has a pretty
-good way of designating symbols and packages using the `:` colon
-syntax.
+The routes we have until now all use:
 
-It woudl be nicer if we could write routes like:
+* the `find-symbol-or-lose` helper;
+* the `:package` keyword arg.
+
+It would be nicer if they were simply functions of a symbol: After all
+, in Common Lisp, passing symbols around doesn't force you to pass
+their packages separately!
+
+So basically, we want to write routes like this:
 
 ```lisp
 (defroute lispdoc (:get "text/*" symbol &key (doctype 'function))
@@ -201,78 +268,41 @@ Actually, this will work *just fine* out of the box. But the routes
 matched are not as human-readable like before: they look like this:
 
 ```
-lispdoc/cl%3Adefun          ; previously lispdoc/defun
-lispdoc/snooze%3Adefroute   ; previously lispdoc/defroute?package=snooze
+(lispdoc-path 'cl-ppcre:scan)
+  ;; => "/lispdoc/cl-ppcre%3Ascan"
+(lispdoc-path 'ql:quickload)
+  ;; => "/lispdoc/quicklisp-client%3Aquickload"
 ```
 
-Furthermore, it is conceivable that we had already published these
-routes to the world, so we need to change the implementation without
-changing the interface.
+Even if you find that perfectly acceptable, it is conceivable that we
+had already the other kind of routes to the world, so we need to
+change the implementation without changing the interface. This is
+where `uri-to-arguments` and `arguments-to-uri` might help:
+
 
 ```lisp
-(defmethod uri-to-arguments ((resource (eql #'betterdoc)) uri)
+(defmethod uri-to-arguments ((resource (eql #'lispdoc)) uri)
   (multiple-value-bind (plain-args keyword-args)
       (call-next-method)
     (let* ((sym-name (string (first plain-args)))
-           (package-name (or (getf keyword-args :package) :cl))
-           (sym (handler-case
-                    (find-symbol sym-name package-name)
-                  (error (e) (http-condition 400 "Malformed args (~a)" e)))))
+           (package-name (or (cdr (assoc :package keyword-args)) 'cl))
+           (sym (find-symbol sym-name package-name)))
       (unless sym
         (http-condition 404 "Sorry, no such symbol"))
       (values (cons sym (cdr plain-args))
-              (loop for key in keyword-args)))))
+              (remove :package keyword-args :key #'car)))))
 
-(defmethod arguments-to-uri ((resource (eql #'betterdoc)) plain-args keyword-args)
+(defmethod arguments-to-uri ((resource (eql #'lispdoc)) plain-args keyword-args)
   (let ((sym (first plain-args)))
     (call-next-method resource
-                      (intern (symbol-name sym) :keyword)
-                      (cons `(:package . ,(symbol-package sym))
+                      (list sym)
+                      (cons `(:package . ,(read-for-resource
+                                           resource
+                                           (package-name (symbol-package sym))))
                             keyword-args))))
 ```
 
-Controlling errors
-------------------
 
-Errors and unexpected situations are part of normal HTTP life. Many
-websites and REST services serve information about the conditions that
-lead to an error, be it in a pretty HTML error page or a JSON object
-describing the problem.
-
-Snooze tries to make it possible to precisely control what information
-gets sent to the client via a generic function and two variables:
-
-* `explain-condition (condition resource content-type)`
-* `*catch-errors*`
-* `*catch-http-conditions*`
-
-Out of the box, there no methods on `explain-condition` and the first
-two variables are set to `t` by default. This means that any HTTP
-condition or a Lisp error in your application will generate a very
-terse reply in plain-text.
-
-You can partially amend by writing an explain-condition that tries to
-explain HTTP conditions politely in HTML:
-
-```lisp
-(defmethod explain-condition ((condition http-condition) (resource (eql #'lispdoc)) (ct snooze-types:text/html))
-               (with-output-to-string (s)
-                 (format s "<h1>Terribly sorry</h1><p>, but it seems you've generated a ~a</p>" (status-code condition))))
-```
-
-You use the same technique to explain *any* error like so:
-
-```lisp
-(defmethod explain-condition ((error error) (resource (eql #'lispdoc)) (ct snooze-types:text/html))
-               (with-output-to-string (s)
-                 (format s "<h1>Oh dear</h1><p>, but it seems I've messed here</p>")))
-```
-
-Finally, you can play around with `*catch-errors*` and
-`*catch-http-conditions` (see their docstrings). I normally leave
-`*catch-http-conditions*` set to `t` and `*catch-errors*` set to
-either `:verbose` or `nil` depending on whether I want to do debugging
-in the browser or in Emacs.
 
 Support
 -------

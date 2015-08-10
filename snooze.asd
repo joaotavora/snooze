@@ -1,11 +1,12 @@
 (asdf:defsystem :snooze
-  :depends-on (#:alexandria #:cl-ppcre #:closer-mop #:quri)
-  :author "capitaomorte <https://github.com/capitaomorte>"
-  :license "GPL"
-  :description "Snooze is a web framework setting up REST routes using CLOS."
+  :depends-on (#:alexandria #:cl-ppcre #:closer-mop #:quri #:uiop)
+  :author "João Távora <https://github.com/capitaomorte>"
+  :version #.(with-open-file (f "VERSION") (string (read f)))
+  :license "LLGPL"
+  :description "A framework for building REST services using CLOS."
   :serial t
   :components ((:file "package")
-               (:file "mime-types")
+               (:file "constants")
                (:file "common")
                (:file "api")))
 

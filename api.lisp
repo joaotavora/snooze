@@ -172,6 +172,24 @@ The default method tries to WRITE-TO-STRING (with *PRINT-CASE* set
 to :DOWNCASE) every object, except for keywords, which are written
 without the leading \":\" character. Afterwards the whole URI is
 escaped for invalid sequences."))
+
+(defgeneric read-for-resource (resource string)
+  (:documentation
+   "Like READ-FROM-STRING, but for RESOURCE.
+Reads the object represented in STRING into a CL representation,
+considering RESOURCE.
+
+The default implementation calls READ-FROM-STRING with the current
+package set to the package of the RESOURCE's symbol"))
+
+(defgeneric write-for-resource (resource obj)
+  (:documentation
+   "Like WRITE-TO-STRING, but for RESOURCE.
+
+Returns a string representing the object OBJ, considering RESOURCE.
+
+The default implementation calls WRITE-TO-STRING with the current
+package set to the package of the RESOURCE's symbol"))
   
 
 (defun handle-request (uri &key

@@ -97,6 +97,9 @@
    #:search-for-extension-content-type
    #:all-defined-resources
    #:payload-as-string
-   #:explain-condition-failsafe))
+   #:explain-condition-failsafe
+   #:defgenpath
+   #:read-for-resource
+   #:write-for-resource))
 
 (defpackage :snooze-types (:use) (:export #:content #:type))
