@@ -522,8 +522,16 @@ remaining URI after these discoveries."
   ((unconvertible-argument-value :initarg :unconvertible-argument-value :accessor unconvertible-argument-value)
    (unconvertible-argument-key :initarg :unconvertible-argument-key :accessor unconvertible-argument-key))
   (:default-initargs
-   :status-code 400
    :format-control "An argument in the URI cannot be read"))
+
+(define-condition resignalled-condition ()
+  ((original-condition :initarg :original-condition
+                       :initform (error "Must supply an original condition")
+                       :accessor original-condition)))
+
+(define-condition invalid-uri-structure (invalid-resource-arguments resignalled-condition) ()
+  (:default-initargs
+   :format-control "The URI structure cannot be converted into arguments"))
 
 (define-condition  unsupported-content-type (http-error) ()
   (:default-initargs
@@ -538,8 +546,9 @@ remaining URI after these discoveries."
   (:default-initargs
    :format-control "Resource exists but no such route"))
 
-(define-condition error-when-explaining (simple-error)
-  ((original-condition :initarg :original-condition :accessor original-condition)))
+(define-condition error-when-explaining (simple-error resignalled-condition) ()
+  (:default-initargs
+   :format-control "An error occurred when trying to explain a condition"))
 
 (defmethod initialize-instance :after ((e http-error) &key)
   (assert (<= 500 (status-code e) 599) nil
@@ -577,7 +586,7 @@ out with NO-SUCH-ROUTE."
                                                    *resource*
                                                    verbose-p)
                        (content-class-name 'text/plain)))))
-      (restart-case (handler-bind ((error-when-explaining
+      (restart-case (handler-bind ((resignalled-condition
                                      (lambda (e)
                                        (setq original-condition (original-condition e)
                                              code
@@ -655,8 +664,8 @@ out with NO-SUCH-ROUTE."
                         (content-class-name accepted-type))
               (error (e)
                 (error 'error-when-explaining
-                       :format-control "~a"
-                       :format-arguments (list e)
+                       :format-control "Error when explaining ~a"
+                       :format-arguments (list (type-of e))
                        :original-condition condition)))))
         (auto-catch ()
           :report (lambda (s)
@@ -712,7 +721,14 @@ EXPLAIN-CONDITION.")
             ;; URL-decode args to strings
             ;;
             (multiple-value-bind (converted-plain-args converted-keyword-args)
-                (uri-to-arguments *resource* relative-uri)
+                (handler-bind
+                    ((error (lambda (e)
+                              (when *catch-errors*
+                                (error 'unconvertible-uri-structure
+                                       :format-control "Caught ~a in URI-TO-ARGUMENTS"
+                                       :format-arguments (list (type-of e))
+                                       :original-condition e)))))
+                  (uri-to-arguments *resource* relative-uri))
               (let ((converted-arguments (append converted-plain-args
                                                  (loop for (a . b) in converted-keyword-args
                                                        collect a collect b))))

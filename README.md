@@ -231,7 +231,45 @@ changing the interface.
 Controlling errors
 ------------------
 
-TODO...
+Errors and unexpected situations are part of normal HTTP life. Many
+websites and REST services serve information about the conditions that
+lead to an error, be it in a pretty HTML error page or a JSON object
+describing the problem.
+
+Snooze tries to make it possible to precisely control what information
+gets sent to the client via a generic function and two variables:
+
+* `explain-condition (condition resource content-type)`
+* `*catch-errors*`
+* `*catch-http-conditions*`
+
+Out of the box, there no methods on `explain-condition` and the first
+two variables are set to `t` by default. This means that any HTTP
+condition or a Lisp error in your application will generate a very
+terse reply in plain-text.
+
+You can partially amend by writing an explain-condition that tries to
+explain HTTP conditions politely in HTML:
+
+```lisp
+(defmethod explain-condition ((condition http-condition) (resource (eql #'lispdoc)) (ct snooze-types:text/html))
+               (with-output-to-string (s)
+                 (format s "<h1>Terribly sorry</h1><p>, but it seems you've generated a ~a</p>" (status-code condition))))
+```
+
+You use the same technique to explain *any* error like so:
+
+```lisp
+(defmethod explain-condition ((error error) (resource (eql #'lispdoc)) (ct snooze-types:text/html))
+               (with-output-to-string (s)
+                 (format s "<h1>Oh dear</h1><p>, but it seems I've messed here</p>")))
+```
+
+Finally, you can play around with `*catch-errors*` and
+`*catch-http-conditions` (see their docstrings). I normally leave
+`*catch-http-conditions*` set to `t` and `*catch-errors*` set to
+either `:verbose` or `nil` depending on whether I want to do debugging
+in the browser or in Emacs.
 
 Support
 -------
