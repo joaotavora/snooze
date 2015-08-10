@@ -466,17 +466,18 @@ remaining URI after these discoveries."
                               ,@body)
                  else if (eq :genpath (car option))
                         do (setq genpath-form
-                                 `(defgenpath ,name ,(second option)))
+                                 (make-genpath-form (second option) name
+                                                    (nthcdr 2 lambda-list)))
                  else
                    collect option))
          (simplified-lambda-list (mapcar #'(lambda (argspec)
                                              (ensure-atom argspec))
                                          lambda-list)))
     `(progn
+       ,@(if genpath-form `(,genpath-form))
        (defgeneric ,name ,simplified-lambda-list
          (:generic-function-class resource-generic-function)
-         ,@defgeneric-args)
-       ,@(if genpath-form `(,genpath-form)))))
+         ,@defgeneric-args))))
 
 
 
