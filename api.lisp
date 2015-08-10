@@ -211,7 +211,21 @@ be used by the application to craft a response to the request."
 (setf (documentation '*backend* 'variable)
       "Bound to a keyword identifying the handling server backend.")
 
+(defgeneric backend-payload-as-string (backend)
+  (:documentation 
+   "Ask BACKEND to return the current HTTP request's payload as a string."))
+
+(defun payload-as-string (&optional (backend *backend*))
+  "Return the current HTTP request's payload as a string.
+BACKEND defaults to *BACKEND*"
+  (backend-payload-as-string backend))
+
+
+
+;;; Clack integration
+;;; 
 (defvar *clack-request-env*)
+
 (setf (documentation '*clack-request-env* 'variable)
       "Bound in function made by MAKE-CLACK-APP to Clack environment.")
 
@@ -241,7 +255,9 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
                         (:content-type ,payload-ct)
                         (,payload)))))))
 
-(defun payload-as-string () (payload-as-string-1 *backend*))
+
+
+
 
 
 

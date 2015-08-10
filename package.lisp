@@ -63,14 +63,18 @@
    ;; 
    #:defresource
    #:defroute
+   #:delete-resource
+   #:defgenpath
    ;; converting arguments
    ;; 
    #:arguments-to-uri
    #:uri-to-arguments
+   #:read-for-resource
+   #:write-for-resource
    #:unconvertible-argument-key
    #:unconvertible-argument-value
    #:unconvertible-argument
-   #:fragment   
+   #:fragment
    ;; error handling
    ;; 
    #:http-condition
@@ -97,9 +101,6 @@
    #:search-for-extension-content-type
    #:all-defined-resources
    #:payload-as-string
-   #:explain-condition-failsafe
-   #:defgenpath
-   #:read-for-resource
-   #:write-for-resource))
+   ))
 
 (defpackage :snooze-types (:use) (:export #:content #:type))

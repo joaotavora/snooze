@@ -96,10 +96,10 @@
                     (:div (:p :class "recent-change recent-change-quote"
                               (fmt "\"~a\"" proposed))))))))
 
-(defun render-doc (stream sym doctype)
-  (declare (ignore doctype))
-  (with-html-output (stream)
-    ))
+;; (defun render-doc (stream sym doctype)
+;;   (declare (ignore doctype))
+;;   (with-html-output (stream)
+;;     ))
 
 (deftemplate with-basic-page (stream &key
                                      title
@@ -234,7 +234,7 @@
 (defun stop ()
   (when *server* (hunchentoot:stop *server*) (setq *server* nil)))
 
-(defun start (&rest args &key (port 5000))
+(defun start (&rest args &key (port 6000))
   (stop)
   (setq *server* (hunchentoot:start
                   (apply #'make-instance 'snooze-acceptor

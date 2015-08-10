@@ -151,9 +151,11 @@
 
 (defun delete-resource (designator)
   (let ((resource (find-resource designator)))
-    (if resource
-        (remhash (resource-name resource) *all-resources*)
-        (error "No such resource to delete!"))))
+    (cond (resource
+           (fmakunbound (resource-name resource))
+           (remhash (resource-name resource) *all-resources*))
+          (t
+           (error "No such resource to delete!")))))
 
 (defmethod initialize-instance :after ((gf resource-generic-function) &rest args)
   (declare (ignore args))
@@ -464,21 +466,17 @@ remaining URI after these discoveries."
                               ,@body)
                  else if (eq :genpath (car option))
                         do (setq genpath-form
-                                 (make-genpath-form (second option) name
-                                                    (nthcdr 2 lambda-list)))
+                                 `(defgenpath ,name ,(second option)))
                  else
                    collect option))
          (simplified-lambda-list (mapcar #'(lambda (argspec)
                                              (ensure-atom argspec))
                                          lambda-list)))
     `(progn
-       ,@(let ((probe (find :genpath options :key #'car)))
-           (when probe
-             `((defgenpath ,(second probe) ,name))))
-       ,@(if genpath-form `(,genpath-form))
        (defgeneric ,name ,simplified-lambda-list
          (:generic-function-class resource-generic-function)
-         ,@defgeneric-args))))
+         ,@defgeneric-args)
+       ,@(if genpath-form `(,genpath-form)))))
 
 
 
@@ -525,6 +523,11 @@ remaining URI after these discoveries."
    :status-code 400
    :format-control "Resource exists but invalid arguments passed"))
 
+(define-condition resignalled-condition ()
+  ((original-condition :initarg :original-condition
+                       :initform (error "Must supply an original condition")
+                       :accessor original-condition)))
+
 (define-condition unconvertible-argument (invalid-resource-arguments resignalled-condition)
   ((unconvertible-argument-value :initarg :unconvertible-argument-value :accessor unconvertible-argument-value)
    (unconvertible-argument-key :initarg :unconvertible-argument-key :accessor unconvertible-argument-key))
@@ -536,11 +539,6 @@ remaining URI after these discoveries."
    (actual-args :initarg :actual-args :initform (error "Must supply :ACTUAL-ARGS") :accessor actual-args))
   (:default-initargs
    :format-control "An argument in the URI cannot be read"))
-
-(define-condition resignalled-condition ()
-  ((original-condition :initarg :original-condition
-                       :initform (error "Must supply an original condition")
-                       :accessor original-condition)))
 
 (define-condition invalid-uri-structure (invalid-resource-arguments resignalled-condition)
   ((invalid-uri :initarg :invalid-uri :initform (error "Must supply the invalid URI") :accessor invalid-uri))
@@ -881,7 +879,7 @@ EXPLAIN-CONDITION.")
   "Default value for *RESOURCES-FUNCTION*, which see."
   snooze-common:*all-resources*)
 
-(defmethod payload-as-string-1 ((backend (eql :clack)))
+(defmethod backend-payload-as-string ((backend (eql :clack)))
   (let* ((len (getf *clack-request-env* :content-length))
          (str (make-string len)))
     (read-sequence str (getf *clack-request-env* :raw-body))
