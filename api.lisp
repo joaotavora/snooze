@@ -21,7 +21,7 @@ specialized-lambda-list portion accepts some simplifications."
   "If non-nil, catch HTTP conditions and explain them to the client.
 If T, an attempt is made to \"politely\" explain the condition to the
 client in a format accepted by the user agent as indicated in the
-\"Accept:\" header. If the value is the keyword :BACKTRACE, offer a
+\"Accept:\" header. If the value is the keyword :VERBOSE, offer a
 plain text explanation with a full Lisp backtrace indicating where the
 condition originated.")
 
@@ -29,7 +29,7 @@ condition originated.")
   "If non-nil, catch any error and explain them to the client.
 If T, an attempt is made to \"politely\" explain the condition to the
 client in a format accepted by the user agent as indicated in the
-\"Accept:\" header. If the value is the keyword :BACKTRACE, offer a
+\"Accept:\" header. If the value is the keyword :VERBOSE, offer a
 plain text explanation with a full Lisp backtrace indicating where the
 condition originated.")
 

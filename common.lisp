@@ -471,18 +471,32 @@ remaining URI after these discoveries."
 
 ;;; Some external stuff but hidden away from the main file
 ;;; 
-(defun explain-condition-failsafe (condition resource &optional original-condition with-backtrace)
+(defmethod explain-condition-failsafe (condition resource &optional verbose-p)
   (declare (ignore resource))
-  (with-output-to-string (s)
-    (format s "~&Your SNOOZE app was bitten by:~%~%  ~a" condition)
-    (when original-condition
-      (format s "~%~%EXPLAIN-CONDITION was trying to explain:~%~%  ~a" original-condition))
-    (when with-backtrace
-      (format s "~&Here's a backtrace of the condition ~%~%")
-      (uiop/image:print-condition-backtrace condition :stream s)
-      (when original-condition
-        (format s "~&And's a backtrace of the original condition ~%~%")
-        (uiop/image:print-condition-backtrace original-condition :stream s)))))
+  (let* ((original-condition (and (typep condition 'error-when-explaining)
+                                  (original-condition condition)))
+         (status-code (or (and original-condition
+                               (typep original-condition 'http-condition)
+                               (status-code original-condition))
+                          500)))
+    (with-output-to-string (s)
+      (cond (verbose-p
+             (cond (original-condition
+                    (format s "~&SNOOZE:EXPLAIN-CONDITION was trying to explain:~%~%  ~a"
+                            original-condition)
+                    (format s "~%~%when it was bitten by:~%~%"))
+                   (t
+                    (format s "~&SNOOZE was bitten by:~%~%")))
+             (format s "  ~a" condition)
+             (when original-condition
+               (format s "~&~%Here's a backtrace of the original condition ~%~%")
+               (uiop/image:print-condition-backtrace original-condition :stream s))
+             (format s "~&~%Here's a backtrace that bit me ~%~%")
+             (uiop/image:print-condition-backtrace condition :stream s))
+            (t
+             (format s "~a ~a"
+                     status-code
+                     (gethash status-code snooze-common::*reason-phrase-hash*)))))))
 
 (define-condition http-condition (simple-condition)
   ((status-code :initarg :status-code :initform (error "Must supply a HTTP status code.")
@@ -499,8 +513,7 @@ remaining URI after these discoveries."
    :status-code 404
    :format-control "Resource does not exist"))
 
-(define-condition invalid-resource-arguments (http-condition)
-  ((original-condition :initarg :original-condition :accessor original-condition))
+(define-condition invalid-resource-arguments (http-condition) ()
   (:default-initargs
    :status-code 400
    :format-control "Resource exists but invalid arguments passed"))
@@ -515,7 +528,7 @@ remaining URI after these discoveries."
 (define-condition  unsupported-content-type (http-error) ()
   (:default-initargs
    :status-code 501
-   :format-control "Resource exists but invalid arguments passed"))
+   :format-control "Content type is not supported"))
 
 
 ;;; More internal stuff
@@ -557,31 +570,34 @@ out with NO-SUCH-ROUTE."
 
 (defun call-brutally-explaining-conditions (fn)
   (let (code condition original-condition)
-    (flet ((explain (backtrace-p)
+    (flet ((explain (verbose-p)
              (throw 'response
                (values code
                        (explain-condition-failsafe condition
                                                    *resource*
-                                                   original-condition
-                                                   backtrace-p)
+                                                   verbose-p)
                        (content-class-name 'text/plain)))))
       (restart-case (handler-bind ((error-when-explaining
                                      (lambda (e)
-                                       (setq original-condition (original-condition e))))
+                                       (setq original-condition (original-condition e)
+                                             code
+                                             (when (typep original-condition 'http-condition)
+                                               (status-code original-condition)))))
                                    (error
                                      (lambda (e)
-                                       (setq code 500 condition e)
-                                       (cond ((eq *catch-errors* :backtrace)
-                                              (invoke-restart 'explain-with-backtrace))
+                                       (setq code (or code 500)
+                                             condition e)
+                                       (cond ((eq *catch-errors* :verbose)
+                                              (invoke-restart 'explain-verbosely))
                                              (*catch-errors*
                                               (invoke-restart 'failsafe-explain)))))
                                    (http-condition
                                      (lambda (c)
                                        (setq code (status-code c) condition c)
-                                       (cond ((eq *catch-http-conditions* :backtrace)
-                                              (invoke-restart 'explain-with-backtrace))))))
+                                       (cond ((eq *catch-http-conditions* :verbose)
+                                              (invoke-restart 'explain-verbosely))))))
                       (funcall fn))
-        (explain-with-backtrace () :report
+        (explain-verbosely () :report
           (lambda (s) (format s "Explain ~a condition with full backtrace" code))
           (explain t))
         (failsafe-explain () :report
@@ -592,7 +608,7 @@ out with NO-SUCH-ROUTE."
   (let (code
         condition
         accepted-type)
-    (labels ((accepted-type (condition)
+    (labels ((accepted-type-for (condition)
                (some (lambda (wanted)
                        (when (gf-primary-method-specializer
                               #'explain-condition
@@ -600,38 +616,31 @@ out with NO-SUCH-ROUTE."
                               1)
                          wanted))
                      (mapcar #'make-instance client-accepts)))
-             (explain ()
-               (throw 'response
-                 (handler-case
-                     (values code
-                             (explain-condition condition *resource* accepted-type)
-                             (content-class-name accepted-type))
-                   (error (e)
-                     (error 'error-when-explaining
-                            :format-control "~a"
-                            :format-arguments (list e)
-                            :original-condition condition))))))
+             (check-politely-explain ()
+               (unless accepted-type
+                 (error 'error-when-explaining
+                        :format-control "No routes to politely explain ~a to client"
+                        :format-arguments (list (type-of condition))
+                        :original-condition condition))))
       (restart-case 
           (handler-bind ((condition
                            (lambda (c)
                              (setq condition c
-                                   accepted-type (accepted-type condition))
-                             (unless accepted-type
-                               (error 'error-when-explaining
-                                      :format-control "No routes to politely explain condition to client"
-                                      :original-condition c))))
+                                   accepted-type (accepted-type-for condition))))
                          (http-condition
                            (lambda (c)
                              (setq code (status-code c))
                              (when (and *catch-http-conditions*
-                                        (not (eq *catch-http-conditions* :backtrace)))
+                                        (not (eq *catch-http-conditions* :verbose)))
+                               (check-politely-explain)
                                (invoke-restart 'politely-explain))))
                          (error
                            (lambda (e)
                              (declare (ignore e))
                              (setq code 500)
                              (when (and *catch-errors*
-                                        (not (eq *catch-errors* :backtrace)))
+                                        (not (eq *catch-errors* :verbose)))
+                               (check-politely-explain)
                                (invoke-restart 'politely-explain)))))
             (funcall fn))
         (politely-explain ()
@@ -639,7 +648,16 @@ out with NO-SUCH-ROUTE."
                     (format s "Politely explain to client in ~a"
                             accepted-type))
           :test (lambda (c) (declare (ignore c)) accepted-type)
-          (explain))
+          (throw 'response
+            (handler-case
+                (values code
+                        (explain-condition condition *resource* accepted-type)
+                        (content-class-name accepted-type))
+              (error (e)
+                (error 'error-when-explaining
+                       :format-control "~a"
+                       :format-arguments (list e)
+                       :original-condition condition)))))
         (auto-catch ()
           :report (lambda (s)
                     (format s "Start catching ~a automatically"
@@ -653,13 +671,13 @@ out with NO-SUCH-ROUTE."
               (setq *catch-http-conditions* t)
               (setq *catch-errors* t))
           (if (find-restart 'politely-explain)
-              (explain)
+              (invoke-restart 'politely-explain)
               (if (find-restart 'failsafe-explain)
                   (invoke-restart 'failsafe-explain))))))))
 
 (defmacro brutally-explaining-conditions (() &body body)
   "Explain conditions in BODY in a failsafe way.
-Honours the :BACKTRACE option to *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*."
+Honours the :VERBOSE option to *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*."
   `(call-brutally-explaining-conditions (lambda () ,@body)))
 
 (defmacro politely-explaining-conditions ((client-accepts) &body body)
@@ -695,15 +713,8 @@ EXPLAIN-CONDITION.")
             ;;
             (multiple-value-bind (converted-plain-args converted-keyword-args)
                 (uri-to-arguments *resource* relative-uri)
-                ;; (handler-case
-                    
-                ;;   (error (e)
-                ;;     (error 'invalid-resource-arguments
-                ;;            :format-control "Malformed arguments for resource ~a"
-                ;;            :format-arguments (list (resource-name *resource*))
-                ;;            :original-condition e)))
               (let ((converted-arguments (append converted-plain-args
-                                                 (loop for (a . b) on converted-keyword-args
+                                                 (loop for (a . b) in converted-keyword-args
                                                        collect a collect b))))
                 ;; Double check that the arguments indeed
                 ;; fit the resource's lambda list
@@ -771,17 +782,16 @@ EXPLAIN-CONDITION.")
                                  (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
                                        for (undecoded-key-name undecoded-value-string) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
                                        when (and undecoded-key-name undecoded-value-string)
-                                         append (list (intern (string-upcase
+                                         collect (cons (intern (string-upcase
                                                                (quri:url-decode undecoded-key-name))
-                                                              :keyword)
-                                                      (quri:url-decode undecoded-value-string))))
+                                                               :keyword)
+                                                       (quri:url-decode undecoded-value-string))))
                             (when fragment
                               (list 'snooze:fragment fragment)))))
         (values
          (mapcar #'probe (mapcar #'quri:url-decode plain-args))
-         (loop for (key value) on keyword-args by #'cddr
-               collect key
-               collect (probe value key)))))))
+         (loop for (key . value) in keyword-args
+               collect (cons key (probe value key))))))))
 
 (defmethod arguments-to-uri (resource plain-args keyword-args)
   (flet ((encode (thing)
@@ -795,7 +805,9 @@ EXPLAIN-CONDITION.")
   (let* ((plain-part (format nil "/~{~a~^/~}"
                                 (mapcar #'encode plain-args)))
          (query-part (and keyword-args
-                          (format nil "?~{~a=~a~^&~}" (mapcar #'encode keyword-args)))))
+                          (format nil "?~{~a=~a~^&~}"
+                                  (mapcar #'encode (loop for (k . v) in keyword-args
+                                                         collect k collect v))))))
     (let ((string (format nil "/~a~a~a"
                           (string-downcase (resource-name resource))
                           (or plain-part "")
@@ -836,3 +848,8 @@ EXPLAIN-CONDITION.")
          (str (make-string len)))
     (read-sequence str (getf *clack-request-env* :raw-body))
     str))
+
+(defmethod print-object ((c http-condition) s)
+  (format s "~a: ~?" (status-code c)
+          (simple-condition-format-control c)
+          (simple-condition-format-arguments c)))
