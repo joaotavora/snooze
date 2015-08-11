@@ -551,10 +551,6 @@ remaining URI after these discoveries."
    :status-code 501
    :format-control "Content type is not supported"))
 
-
-;;; More internal stuff
-;;; 
-
 (define-condition no-such-route (http-condition) ()
   (:default-initargs
    :format-control "Resource exists but no such route"))
@@ -562,6 +558,41 @@ remaining URI after these discoveries."
 (define-condition error-when-explaining (simple-error resignalled-condition) ()
   (:default-initargs
    :format-control "An error occurred when trying to explain a condition"))
+
+(defmethod print-object ((c http-condition) s)
+  (format s "~a: ~?" (status-code c)
+          (simple-condition-format-control c)
+          (simple-condition-format-arguments c)))
+
+(defmethod print-object :after ((c resignalled-condition) s)
+  (when *print-conditions-verbosely*
+    (format s "~&~%Here's a backtrace of the original condition ~%~%")
+    (uiop/image:print-condition-backtrace (original-condition c) :stream s)))
+
+(defmethod print-object ((c error-when-explaining) s)
+  (format s "~&SNOOZE:EXPLAIN-CONDITION was trying to explain:~%~%  ~a"
+                            (original-condition c))
+  (format s "~%~%when it was bitten by:~%~%  ~?"
+          (simple-condition-format-control c)
+          (simple-condition-format-arguments c)))
+
+(defmethod print-object ((c invalid-uri-structure) s)
+  (format s "~&SNOOZE:URI-TO-ARGUMENTS was trying to decode:~%~%  ~a"
+                            (invalid-uri c))
+  (format s "~%~%when it was bitten by:~%~%  ~a"
+          (original-condition c)))
+
+(defmethod print-object ((c incompatible-lambda-list) s)
+  (format s "~&~?" (simple-condition-format-control c)
+          (simple-condition-format-arguments c))
+  (format s "~&Trying to fit~%  ~a~%to the lambda list~%  ~a"
+          (actual-args c) (lambda-list c))
+  (format s "~%~%when it was bitten by:~%~%  ~a"
+          (original-condition c)))
+
+
+;;; More internal stuff
+;;; 
 
 (defmethod initialize-instance :after ((e http-error) &key)
   (assert (<= 500 (status-code e) 599) nil
@@ -707,8 +738,9 @@ Honours the :VERBOSE option to *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*."
 Honours *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*"
   `(call-politely-explaining-conditions ,client-accepts (lambda () ,@body)))
 
-(defvar *resource*
-  "Bound early in HANDLE-REQUEST-1 to nil or to a RESOURCE.
+(defvar *resource*)
+(setf (documentation '*resource* 'variable)
+      "Bound early in HANDLE-REQUEST-1 to nil or to a RESOURCE.
 Used by POLITELY-EXPLAINING-CONDITIONS and
 BRUTALLY-EXPLAINING-CONDITIONS to pass a resource to
 EXPLAIN-CONDITION.")
@@ -783,6 +815,106 @@ EXPLAIN-CONDITION.")
                     (throw 'response (values code
                                              payload
                                              (content-class-name payload-ct)))))))))))))
+
+;;; Default values for options
+;;;
+(defun default-resource-name (uri)
+  "Default value for *RESOURCE-NAME-FUNCTION*, which see."
+  (let* ((first-slash-or-qmark (position-if #'(lambda (char)
+                                                (member char '(#\/ #\?)))
+                                            uri
+                                            :start 1)))
+    (values (cond (first-slash-or-qmark
+                   (subseq uri 1 first-slash-or-qmark))
+                  (t
+                   (subseq uri 1)))
+            (if first-slash-or-qmark
+                (subseq uri first-slash-or-qmark)))))
+
+(defun search-for-extension-content-type (uri-path)
+  "Default value for *URI-CONTENT-TYPES-FUNCTION*, which see."
+  (multiple-value-bind (matchp groups)
+      (cl-ppcre:scan-to-strings "([^\\.]+)\\.(\\w+)(.*)" uri-path)
+    (let ((content-type-class (and matchp
+                                   (find-content-class
+                                    (gethash (aref groups 1) *mime-type-hash*)))))
+      (when content-type-class
+        (values
+         (list content-type-class)
+         (format nil "~a~a" (aref groups 0) (aref groups 2)))))))
+
+(defun all-defined-resources ()
+  "Default value for *RESOURCES-FUNCTION*, which see."
+  snooze-common:*all-resources*)
+
+(defmethod backend-payload ((backend (eql :clack)) (type snooze-types:text))
+  (let* ((len (getf *clack-request-env* :content-length))
+         (str (make-string len)))
+    (read-sequence str (getf *clack-request-env* :raw-body))
+    str))
+
+
+
+;;; Reading and writing URI's
+;;;
+
+(defmethod uri-to-arguments (resource relative-uri)
+  "Default method of URI-TO-ARGUMENTS, which see."
+  (flet ((probe (str &optional key)
+           (handler-case
+               (progn
+                 (let ((*read-eval* nil))
+                   (read-for-resource resource str)))
+             (error (e)
+               (error 'unconvertible-argument
+                      :unconvertible-argument-value str
+                      :unconvertible-argument-key key
+                      :original-condition e
+                      :format-control "Malformed arg for resource ~a"
+                      :format-arguments (list (resource-name *resource*)))))))
+    (when relative-uri
+      (let* ((relative-uri (ensure-uri relative-uri))
+             (path (quri:uri-path relative-uri))
+             (query (quri:uri-query relative-uri))
+             (fragment (quri:uri-fragment relative-uri))
+             (plain-args (and path
+                              (plusp (length path))
+                              (cl-ppcre:split "/" (subseq path 1))))
+             (keyword-args (append
+                            (and query
+                                 (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
+                                       for (undecoded-key-name undecoded-value-string) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
+                                       when (and undecoded-key-name undecoded-value-string)
+                                         collect (cons (intern (string-upcase
+                                                               (quri:url-decode undecoded-key-name))
+                                                               :keyword)
+                                                       (quri:url-decode undecoded-value-string))))
+                            (when fragment
+                              `((snooze:fragment . ,fragment))))))
+        (values
+         (mapcar #'probe (mapcar #'quri:url-decode plain-args))
+         (loop for (key . value) in keyword-args
+               collect (cons key (probe value key))))))))
+
+(defmethod arguments-to-uri (resource plain-args keyword-args)
+  (flet ((encode (thing &optional keyword)
+           (quri:url-encode
+            (cond (keyword
+                   (string-downcase thing))
+                  (t
+                   (write-for-resource resource thing)
+                   )))))
+  (let* ((plain-part (format nil "/~{~a~^/~}"
+                                (mapcar #'encode plain-args)))
+         (query-part (and keyword-args
+                          (format nil "?~{~a=~a~^&~}"
+                                  (loop for (k . v) in keyword-args
+                                        collect (encode k t) collect (encode v))))))
+    (let ((string (format nil "/~a~a~a"
+                          (string-downcase (resource-name resource))
+                          (or plain-part "")
+                          (or query-part ""))))
+      string))))
 
 (defmethod uri-to-arguments (resource relative-uri)
   "Default method of URI-TO-ARGUMENTS, which see."
@@ -851,70 +983,10 @@ EXPLAIN-CONDITION.")
         (*print-case* :downcase))
     (write-to-string object)))
 
-(defun default-resource-name (uri)
-  "Default value for *RESOURCE-NAME-FUNCTION*, which see."
-  (let* ((first-slash-or-qmark (position-if #'(lambda (char)
-                                                (member char '(#\/ #\?)))
-                                            uri
-                                            :start 1)))
-    (values (cond (first-slash-or-qmark
-                   (subseq uri 1 first-slash-or-qmark))
-                  (t
-                   (subseq uri 1)))
-            (if first-slash-or-qmark
-                (subseq uri first-slash-or-qmark)))))
 
-(defun search-for-extension-content-type (uri-path)
-  "Default value for *URI-CONTENT-TYPES-FUNCTION*, which see."
-  (multiple-value-bind (matchp groups)
-      (cl-ppcre:scan-to-strings "([^\\.]+)\\.(\\w+)(.*)" uri-path)
-    (let ((content-type-class (and matchp
-                                   (find-content-class
-                                    (gethash (aref groups 1) *mime-type-hash*)))))
-      (when content-type-class
-        (values
-         (list content-type-class)
-         (format nil "~a~a" (aref groups 0) (aref groups 2)))))))
 
-(defun all-defined-resources ()
-  "Default value for *RESOURCES-FUNCTION*, which see."
-  snooze-common:*all-resources*)
 
-(defmethod backend-payload ((backend (eql :clack)) (type snooze-types:text))
-  (let* ((len (getf *clack-request-env* :content-length))
-         (str (make-string len)))
-    (read-sequence str (getf *clack-request-env* :raw-body))
-    str))
 
-(defmethod print-object ((c http-condition) s)
-  (format s "~a: ~?" (status-code c)
-          (simple-condition-format-control c)
-          (simple-condition-format-arguments c)))
 
-(defmethod print-object :after ((c resignalled-condition) s)
-  (when *print-conditions-verbosely*
-    (format s "~&~%Here's a backtrace of the original condition ~%~%")
-    (uiop/image:print-condition-backtrace (original-condition c) :stream s)))
-
-(defmethod print-object ((c error-when-explaining) s)
-  (format s "~&SNOOZE:EXPLAIN-CONDITION was trying to explain:~%~%  ~a"
-                            (original-condition c))
-  (format s "~%~%when it was bitten by:~%~%  ~?"
-          (simple-condition-format-control c)
-          (simple-condition-format-arguments c)))
-
-(defmethod print-object ((c invalid-uri-structure) s)
-  (format s "~&SNOOZE:URI-TO-ARGUMENTS was trying to decode:~%~%  ~a"
-                            (invalid-uri c))
-  (format s "~%~%when it was bitten by:~%~%  ~a"
-          (original-condition c)))
-
-(defmethod print-object ((c incompatible-lambda-list) s)
-  (format s "~&~?" (simple-condition-format-control c)
-          (simple-condition-format-arguments c))
-  (format s "~&Trying to fit~%  ~a~%to the lambda list~%  ~a"
-          (actual-args c) (lambda-list c))
-  (format s "~%~%when it was bitten by:~%~%  ~a"
-          (original-condition c)))
 
 
