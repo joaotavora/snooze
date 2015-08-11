@@ -42,6 +42,7 @@
                 #:*resource-filter*
                 #:*home-resource*
                 #:*uri-content-types-function*
+                #:content-class-name
                 ;;
                 #:find-resource
                 #:delete-resource
@@ -92,7 +93,11 @@
    #:*catch-errors*
    #:*catch-http-conditions*
    ;; backend stuff
-   ;; 
+   ;;
+   #:*backend*
+   #:payload-as-string
+   #:backend-payload
+   #:content-class-name
    #:*clack-request-env*
    #:make-clack-app
    ;; default values for some options
@@ -100,7 +105,6 @@
    #:default-resource-name
    #:search-for-extension-content-type
    #:all-defined-resources
-   #:payload-as-string
-   ))
+   #:backend-payload))
 
 (defpackage :snooze-types (:use) (:export #:content #:type))

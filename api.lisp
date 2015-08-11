@@ -211,14 +211,16 @@ be used by the application to craft a response to the request."
 (setf (documentation '*backend* 'variable)
       "Bound to a keyword identifying the handling server backend.")
 
-(defgeneric backend-payload-as-string (backend)
+(defgeneric backend-payload (backend type)
   (:documentation 
-   "Ask BACKEND to return the current HTTP request's payload as a string."))
+   "Ask BACKEND to return the current HTTP request's payload as TYPE.
+Type is an instance of SNOOZE-TYPES:CONTENT.
+"))
 
 (defun payload-as-string (&optional (backend *backend*))
   "Return the current HTTP request's payload as a string.
 BACKEND defaults to *BACKEND*"
-  (backend-payload-as-string backend))
+  (backend-payload backend (make-instance 'snooze-types:text)))
 
 
 
