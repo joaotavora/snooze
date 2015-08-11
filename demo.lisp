@@ -10,24 +10,6 @@
                           #:with-html-output-to-string))
 (in-package #:snooze-demo)
 
-(defun render-pretty-date(s stamp)
-  (let* ((now (local-time:now))
-         (diff (local-time-duration:timestamp-difference now stamp)))
-    (loop for type in (reverse '((:sec . "second")
-                                 (:minute . "minute")
-                                 (:hour . "hour")
-                                 (:day . "day")
-                                 (:week . "week")))
-          for as-type = (local-time-duration:duration-as diff (car type))
-          until (plusp as-type)
-          finally
-             (return (if (plusp as-type)
-                         (format s "~a ~a~:*~:*~P ago" as-type (cdr type))
-                         (progn (format s "on ~a"
-                                        (local-time:format-timestring nil stamp
-                                                                      :format local-time:+asctime-format+
-                                                                      ))))))))
-
 (defmacro deftemplate (name (stream-var &rest lambda-list-args) &body who-args)
   "A micro HTML-templating framework"
   (alexandria:with-gensyms (body function)
@@ -51,6 +33,29 @@
                  ,stream
                  ,(cons 'list args))))))
 
+
+(defresource lispdoc (verb ct symbol) (:genpath lispdoc-path))
+
+(defresource homepage (verb ct))
+
+(defun render-pretty-date(s stamp)
+  (let* ((now (local-time:now))
+         (diff (local-time-duration:timestamp-difference now stamp)))
+    (loop for type in (reverse '((:sec . "second")
+                                 (:minute . "minute")
+                                 (:hour . "hour")
+                                 (:day . "day")
+                                 (:week . "week")))
+          for as-type = (local-time-duration:duration-as diff (car type))
+          until (plusp as-type)
+          finally
+             (return (if (plusp as-type)
+                         (format s "~a ~a~:*~:*~P ago" as-type (cdr type))
+                         (progn (format s "on ~a"
+                                        (local-time:format-timestring nil stamp
+                                                                      :format local-time:+asctime-format+
+                                                                      ))))))))
+
 (defun render-some-symbols (stream &optional (package :cl))
   (with-html-output (stream)
     (:span :class "red-highlight pure-menu-heading"
@@ -60,7 +65,7 @@
           ;; repeat 100
           do (htm
               (:li :class "pure-menu-item"
-                   (:a :href (sym-path sym) :class "pure-menu-link"
+                   (:a :href (lispdoc-path sym) :class "pure-menu-link"
                        (fmt "~a" sym))))))))
 
 (defun md5-as-string (input)
@@ -88,7 +93,7 @@
                                          (string-downcase (string-trim #(#\Space #\Newline) email)))))
                           (:div :class "change-name"
                                   (htm (:div (fmt "~a documented " name)
-                                              (:a :class "symbol-link" :href (str (sym-path symbol))
+                                              (:a :class "symbol-link" :href (str (lispdoc-path symbol))
                                                   (let ((*package* (find-package :keyword)))
                                                     (fmt "~a" symbol))))
                                        (:div
@@ -103,8 +108,8 @@
 
 (deftemplate with-basic-page (stream &key
                                      title
-                                     (left-render #'render-some-symbols)
-                                     (right-render #'render-recent-changes))
+                                     (left-render 'render-some-symbols)
+                                     (right-render 'render-recent-changes))
   (:html
    (:head (:title (str (or title "Snooze")))
           (:meta :name "viewport" :content "width=device-width, initial-scale=1")
@@ -112,22 +117,21 @@
           (:link :href "/snooze.css" :rel "stylesheet" :type "text/css"))
    (:body
     (:header :class "pure-g"
-             (:div :class "pure-u-1" :style (cl-css:inline-css '(color white text-align center))
-                   (:h1 "Snooze docdemo!")))
+             (:div :class "pure-u-1" 
+                   (:h3 (:span :style (cl-css:inline-css '(font-style italic color white font-size 110%)) "Docstrung" )
+                        (str ", saving lisp one docstring at a time") ))))
+   (:section
     (:div :id "layout" :class "pure-g"
           (:div :class "pure-u-5-24 pure-menu"
-                (funcall left-render stream))
+                (when left-render (funcall left-render stream)))
           (:div :class "content pure-u-14-24"
                 (:div :class "pure-menu-heading center-heading secondary-highlight" "Description")
                 (:div :class "inner-content" (yield)))
           (:div :class "pure-u-5-24 pure-menu"
-                (funcall right-render stream)))
-    (:footer :class "pure-g"))))
+                (when right-render (funcall right-render stream)))))
+    (:footer :class "pure-g")))
 
-(defresource sym (verb ct symbol)
-  (:genpath sym-path))
-
-(defroute sym (:get "text/html" sym)
+(defroute lispdoc (:get "text/html" (sym symbol))
   (with-output-to-string (s)
     (let ((doc (documentation sym 'function)))
       (with-basic-page (s :title (symbol-name sym))
@@ -147,54 +151,62 @@
                (:button :type "submit" :class "pure-button pure-input-1 pure-button-primary red-highlight"
                         "Submit!")))))))
 
-(defmethod uri-to-arguments ((resource (eql #'sym)) uri)
+(defmethod uri-to-arguments ((resource (eql #'lispdoc)) uri)
+  #+allegro (declare (ignore uri))
   (multiple-value-bind (plain-args keyword-args)
       (call-next-method)
-    (let ((sym (find-symbol (string (second plain-args)) (first plain-args))))
+    (let* ((sym-name (string (second plain-args)))
+           (package-name (string (first plain-args)))
+           (sym (find-symbol sym-name package-name)))
       (unless sym
-        (http-condition 404 ))
+        (http-condition 404 "Sorry, no such symbol"))
       (values (cons sym (cddr plain-args))
               keyword-args))))
 
-(defmethod arguments-to-uri ((resource (eql #'sym)) plain-args keyword-args)
+
+(defmethod arguments-to-uri ((resource (eql #'lispdoc)) plain-args keyword-args)
   (let ((sym (first plain-args)))
     (assert (symbolp sym) nil "This only generates paths to symbols")
     (call-next-method resource
-                      (list* (intern (package-name (symbol-package sym)) :keyword)
-                             (intern (symbol-name sym) :keyword)
+                      (list* (read-for-resource resource (package-name (symbol-package sym)))
+                             (read-for-resource resource (symbol-name sym))
                              (cdr plain-args))
                       keyword-args)))
 
 (defvar *explain-stream*)
 
-(defmethod explain-condition :around (c resource (ct snooze-types:text/html))
-  (declare (ignore resource c))
+(defmethod explain-condition :around (c (resource (eql #'lispdoc)) (ct snooze-types:text/html))
+  #+allegro (declare (ignore c))
   (with-output-to-string (*explain-stream*)
-    (with-basic-page (*explain-stream* :title "Snooze error")
+    (with-basic-page (*explain-stream* :title "Snooze error"
+                                       ;; :left-render nil
+                                       :right-render nil)
       (:p :class "main"
           (call-next-method)))))
 
-(defmethod explain-condition ((c error) resource (ct snooze-types:text/html))
+(defmethod explain-condition ((c error) (resource (eql #'lispdoc)) (ct snooze-types:text/html))
   (with-html-output (*explain-stream*)
     (:i "An unexpected internal error has occured")
-    (:pre (str (explain-condition-failsafe c resource nil t)))))
+    (:pre (str (snooze::explain-condition-failsafe c resource t)))))
 
-(defmethod explain-condition ((c http-condition) resource (ct snooze-types:text/html))
+(defmethod explain-condition ((c http-condition) (resource (eql #'lispdoc)) (ct snooze-types:text/html))
   (with-html-output (*explain-stream*)
     (:i (fmt "You have a ~a: ~a" (status-code c) c))))
 
 (defroute snooze (:get "text/css")
   (cl-css:css
    `(("#layout" :height 600px)
-     (header :height 80px :background slategrey)
+     ("html, button, input, select, textarea, .pure-g [class *= \"pure-u\"]"
+      :font-family "Georgia, Times, \"Times New Roman\", serif")
+     (header :height 60px :background slategrey :color lightgray)
      (footer :height 250px :background slategrey)
-     (.red-highlight :background tomato)
-     (.secondary-highlight :background honeydew )
+     (.red-highlight :background gray)
+     (.secondary-highlight :background slategrey )
      (.center-heading :text-align center)
      (.recent-change :height 100px :padding 10px)
      (.recent-change-quote :overflow-y hidden :font-style italic)
      (.change-name :align center :text-align right)
-     (.symbol-link :text-decoration none :color tomato)
+     (.symbol-link :text-decoration none :color darkslategrey)
      (.sidebar-avatar :float left)
      (.symdesc :padding 10%
                :padding-top 0
@@ -207,6 +219,11 @@
      (.main :padding 20%
             :text-align center))))
 
+(defroute homepage (:get "text/html")
+  (with-output-to-string (s)
+      (with-basic-page (s :title "Docstrung")
+        (:div :class "main" (:i "Welcome, click a symbol on the left side")))))
+
 
 ;;; Hook it to Hunchentoot
 ;;;
@@ -217,7 +234,8 @@
   (multiple-value-bind (code payload payload-ct)
       (let (;; Optional, but we do all the error catching ourselves
             ;; 
-            (hunchentoot:*catch-errors-p* nil))
+            (hunchentoot:*catch-errors-p* nil)
+            (snooze:*backend* :hunchentoot))
         (progv
             (mapcar #'car (snooze-bindings acceptor))
             (mapcar #'cdr (snooze-bindings acceptor))
@@ -229,17 +247,25 @@
           (hunchentoot:content-type*) payload-ct)
     (or payload "")))
 
+(defmethod backend-payload ((backend (eql :hunchentoot))
+                            (type snooze-types:text))
+  (let ((probe (hunchentoot:raw-post-data)))
+    (assert (stringp probe) nil "Asked for a string, but request carries a ~a" (type-of probe))
+    probe))
+
 (defvar *server* nil)
 
 (defun stop ()
   (when *server* (hunchentoot:stop *server*) (setq *server* nil)))
 
-(defun start (&rest args &key (port 6000))
+(defun start (&rest args &key (port 5000))
   (stop)
   (setq *server* (hunchentoot:start
                   (apply #'make-instance 'snooze-acceptor
                          :port port
-                         :snooze-bindings '((snooze:*home-resource* . #'sym))
+                         ;; in this example "homepage" names a resource
+                         ;; to display when the URI is empty
+                         :snooze-bindings `((*home-resource* . homepage))
                          args))))
 
 

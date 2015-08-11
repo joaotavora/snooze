@@ -105,7 +105,7 @@ Let's start by serving docstrings in HTML. As seen above, we already
 have a route which matches any text:
 
 ```
-(defroute lispdoc (:get "text/*" name &key (package :cl) (type 'function))
+(defroute lispdoc (:get :text/* name &key (package :cl) (type 'function))
   (or (documentation (find-symbol-or-lose name package) type)
       (http-condition 404 "Sorry no ~a doc for ~a" type name)))
 ```
@@ -115,7 +115,7 @@ To add HTML support, we just notice that `text/html` *is*
 easiest way is:
 
 ```lisp
-(defroute lispdoc :around (:get "text/html" name &key &allow-other-keys)
+(defroute lispdoc :around (:get :text/html name &key &allow-other-keys)
   (format nil "<h1>Docstring for ~a</h1><p>~a</p>"
           name (call-next-method)))
 ```
@@ -184,7 +184,7 @@ correct URL when a 404 happens:
         (format s "<p>But try <a href=~a>here</a></p>"
                 (lispdoc-path name :package package :doctype othertype))))))
 
-(defroute lispdoc (:get "text/html" name &key (package :cl) (doctype 'function))
+(defroute lispdoc (:get :text/html name &key (package :cl) (doctype 'function))
   (or (documentation (find-symbol-or-lose name package) doctype)
       (http-condition 404 (doc-not-found-message name package doctype))))
 ```
@@ -263,7 +263,7 @@ their packages separately!
 So basically, we want to write routes like this:
 
 ```lisp
-(defroute lispdoc (:get "text/*" (sym symbol) &key (doctype 'function))
+(defroute lispdoc (:get :text/* (sym symbol) &key (doctype 'function))
   (or (documentation sym doctype)
       (http-condition 404 (doc-not-found-message sym doctype))))
 ```
@@ -318,24 +318,24 @@ We can now safely rewrite the remaining routes in much simpler fashion:
         (format s "<p>But try <a href=~a>here</a></p>"
                 (lispdoc-path symbol :doctype othertype))))))
 
-(defroute lispdoc (:get "text/*" (sym symbol) &key (doctype 'function))
+(defroute lispdoc (:get :text/* (sym symbol) &key (doctype 'function))
   (or (documentation sym doctype)
-      (http-condition 404 (doc-not-found-message sym doctype))))
+      (http-condition 404 "No doc found for ~a" sym)))
 
-(defroute lispdoc (:put "text/plain" (sym symbol) &key (doctype 'function))
+(defroute lispdoc (:put :text/plain (sym symbol) &key (doctype 'function))
   (setf (documentation sym doctype)
         (payload-as-string)))
 
-(defroute lispdoc (:get "text/html" (sym symbol) &key (doctype 'function))
+(defroute lispdoc (:get :text/html (sym symbol) &key (doctype 'function))
   (or (documentation sym doctype)
       (http-condition 404 (doc-not-found-message sym doctype))))
 
-(defroute lispdoc (:put "application/json" (sym symbol) &key (doctype 'function))
+(defroute lispdoc (:put :application/json (sym symbol) &key (doctype 'function))
   (let* ((json (handler-case
                    (json:decode-json-from-string
                     (payload-as-string))
                  (error (e)
-                   (http-condition 400 "Malformed JSON (~a)!" e))))
+                   (http-condition 400 "Malformed JSON! (~a)" e))))
          (docstring (cdr (assoc :docstring json))))
     (setf (documentation sym doctype) docstring)))
 ```
@@ -343,13 +343,12 @@ We can now safely rewrite the remaining routes in much simpler fashion:
 Other backends
 --------------
 
-_Snooze_ is backend-agnostic.
+_Snooze_ is backend-agnostic. You can use [Clack][clack], which is a
+good option, or anything else.
 
-You can use [Clack][clack], which is a good option, or anything else
-(_Snooze_ offers with `make-clack-app` for quickly jumping into the
-action, but doesn't "require" Clack in any sense).
-
-Here's a way to hook _Snooze_ to Hunchentoot directly:
+_Snooze_ offers with `make-clack-app` for quickly jumping into the
+action, but doesn't "require" Clack in any sense. Here's a way to hook
+_Snooze_ to Hunchentoot directly:
 
 ```
 (defclass snooze-acceptor (hunchentoot:acceptor)
@@ -359,7 +358,8 @@ Here's a way to hook _Snooze_ to Hunchentoot directly:
   (multiple-value-bind (code payload payload-ct)
       (let (;; Optional, but we do all the error catching ourselves
             ;; 
-            (hunchentoot:*catch-errors-p* nil))
+            (hunchentoot:*catch-errors-p* nil)
+            (snooze:*backend* :hunchentoot))
         (progv
             (mapcar #'car (snooze-bindings acceptor))
             (mapcar #'cdr (snooze-bindings acceptor))
@@ -371,19 +371,26 @@ Here's a way to hook _Snooze_ to Hunchentoot directly:
           (hunchentoot:content-type*) payload-ct)
     (or payload "")))
 
+(defmethod backend-payload ((backend (eql :hunchentoot))
+                            (type snooze-types:text))
+  (let ((probe (hunchentoot:raw-post-data)))
+    (assert (stringp probe) nil "Asked for a string, but request carries a ~a" (type-of probe))
+    probe))
+
 (defvar *server* nil)
 
 (defun stop ()
   (when *server* (hunchentoot:stop *server*) (setq *server* nil)))
 
-(defun start (&rest args &key (port 6000))
+(defun start (&rest args &key (port 5000))
   (stop)
   (setq *server* (hunchentoot:start
                   (apply #'make-instance 'snooze-acceptor
                          :port port
-                         :snooze-bindings '((snooze:*home-resource* . #'sym))
+                         ;; in this example "homepage" name a resource
+                         ;; to display when the URI is empty
+                         :snooze-bindings `((*home-resource* . homepage))
                          args))))
-
 ```
 
 Support
