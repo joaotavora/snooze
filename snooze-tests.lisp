@@ -303,6 +303,56 @@
                      (arguments-to-uri resource plain-args keyword-args)))
                  uri))))
 
+
+;;; SAFE-SIMPLE-READ tests
+;;;
+(deftest safe-simple-read-back ()
+  (let ((crazy-package (or
+                        (find-package "oh oh oh")
+                        (make-package "oh oh oh"))))
+    (unwind-protect
+         (loop for thing in
+               `(someinternalsymbol
+                 "somestring"
+                 123.6
+                 :bla
+                 123
+                 0
+                 ""
+                 ,(intern "this" crazy-package))
+               do 
+                  (is 
+                   (equal (snooze-safe-simple-read:safe-simple-read-from-string
+                           (write-to-string thing))
+                          thing)))
+      (delete-package crazy-package))))
+
+(deftest safe-simple-dont-read-back ()
+  (loop for thing in
+        `((some list)
+          'quoted)
+        do 
+           (is (not 
+                (equal (snooze-safe-simple-read:safe-simple-read-from-string
+                        (write-to-string thing))
+                       thing)))))
+
+
+(deftest safe-simple-read-should-error ()
+  (let ((crazy-package (or
+                        (find-package "oh oh oh")
+                        (make-package "oh oh oh"))))
+    (unwind-protect
+         (loop for string in
+               `("somestring::"
+                 "::"
+                 "something:asd:asd"
+                 "CL::::DEFUN")
+               do 
+                  (signals reader-error
+                    (snooze-safe-simple-read:safe-simple-read-from-string string)))
+      (delete-package crazy-package))))
+
 
 
 

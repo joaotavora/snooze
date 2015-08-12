@@ -179,8 +179,9 @@ escaped for invalid sequences."))
 Reads the object represented in STRING into a CL representation,
 considering RESOURCE.
 
-The default implementation calls READ-FROM-STRING with the current
-package set to the package of the RESOURCE's symbol"))
+The default implementation calls a safer version of READ-FROM-STRING,
+SAFE-SIMPLE-READ-FROM-STRING, with the current package set to the
+package of the RESOURCE's symbol"))
 
 (defgeneric write-for-resource (resource obj)
   (:documentation

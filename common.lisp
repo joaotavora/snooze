@@ -857,7 +857,6 @@ EXPLAIN-CONDITION.")
 
 ;;; Reading and writing URI's
 ;;;
-
 (defmethod uri-to-arguments (resource relative-uri)
   "Default method of URI-TO-ARGUMENTS, which see."
   (flet ((probe (str &optional key)
@@ -976,7 +975,13 @@ EXPLAIN-CONDITION.")
 
 (defmethod read-for-resource (resource string)
   (let ((*package* (symbol-package (resource-name resource))))
-    (read-from-string string)))
+    (multiple-value-bind (obj nread)
+        (snooze-safe-simple-read:safe-simple-read-from-string string)
+      (when (zerop nread)
+        (error "~a refusing to read from ~a"
+               'snooze-safe-simple-read:safe-simple-read-from-string
+               string))
+      obj)))
 
 (defmethod write-for-resource (resource object)
   (let ((*package* (symbol-package (resource-name resource)))

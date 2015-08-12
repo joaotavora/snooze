@@ -108,3 +108,8 @@
    #:backend-payload))
 
 (defpackage :snooze-types (:use) (:export #:content #:type))
+
+(defpackage #:snooze-safe-simple-read (:use :cl)
+            (:export
+             #:safe-simple-read-from-string))
+
