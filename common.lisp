@@ -918,17 +918,18 @@ EXPLAIN-CONDITION.")
 (defmethod uri-to-arguments (resource relative-uri)
   "Default method of URI-TO-ARGUMENTS, which see."
   (flet ((probe (str &optional key)
-           (handler-case
-               (progn
-                 (let ((*read-eval* nil))
-                   (read-for-resource resource str)))
-             (error (e)
-               (error 'unconvertible-argument
-                      :unconvertible-argument-value str
-                      :unconvertible-argument-key key
-                      :original-condition e
-                      :format-control "Malformed arg for resource ~a"
-                      :format-arguments (list (resource-name *resource*)))))))
+           (handler-bind
+               ((error (lambda (e)
+                         (when *catch-errors*
+                           (error 'unconvertible-argument
+                                  :unconvertible-argument-value str
+                                  :unconvertible-argument-key key
+                                  :original-condition e
+                                  :format-control "Malformed arg for resource ~a"
+                                  :format-arguments (list (resource-name *resource*)))))))
+             (progn
+               (let ((*read-eval* nil))
+                 (read-for-resource resource str))))))
     (when relative-uri
       (let* ((relative-uri (ensure-uri relative-uri))
              (path (quri:uri-path relative-uri))
@@ -943,7 +944,7 @@ EXPLAIN-CONDITION.")
                                        for (undecoded-key-name undecoded-value-string) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
                                        when (and undecoded-key-name undecoded-value-string)
                                          collect (cons (intern (string-upcase
-                                                               (quri:url-decode undecoded-key-name))
+                                                                (quri:url-decode undecoded-key-name))
                                                                :keyword)
                                                        (quri:url-decode undecoded-value-string))))
                             (when fragment
@@ -975,13 +976,7 @@ EXPLAIN-CONDITION.")
 
 (defmethod read-for-resource (resource string)
   (let ((*package* (symbol-package (resource-name resource))))
-    (multiple-value-bind (obj nread)
-        (snooze-safe-simple-read:safe-simple-read-from-string string)
-      (when (zerop nread)
-        (error "~a refusing to read from ~a"
-               'snooze-safe-simple-read:safe-simple-read-from-string
-               string))
-      obj)))
+    (snooze-safe-simple-read:safe-simple-read-from-string string t)))
 
 (defmethod write-for-resource (resource object)
   (let ((*package* (symbol-package (resource-name resource)))

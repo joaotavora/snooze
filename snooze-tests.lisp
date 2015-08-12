@@ -202,7 +202,7 @@
   (with-request ("/todo/10") (code) (is (= 404 code)))
   ;; Test keywords args
   ;; 
-  (with-request ("/todo/1?maybe=bla") (code) (is (= 200 code)))
+  (with-request ("/todo/1?maybe=an-unknown-symbol") (code) (is (= 200 code)))
   (with-request ("/todo/1?nokeyword=bla") (code) (is (= 400 code)))
   ;; Test "Accept:" header
   ;; 
@@ -327,24 +327,15 @@
                           thing)))
       (delete-package crazy-package))))
 
-(deftest safe-simple-dont-read-back ()
-  (loop for thing in
-        `((some list)
-          'quoted)
-        do 
-           (is (not 
-                (equal (snooze-safe-simple-read:safe-simple-read-from-string
-                        (write-to-string thing))
-                       thing)))))
-
-
 (deftest safe-simple-read-should-error ()
   (let ((crazy-package (or
                         (find-package "oh oh oh")
                         (make-package "oh oh oh"))))
     (unwind-protect
          (loop for string in
-               `("somestring::"
+               `(,(write-to-string '(some list))
+                 "'quoted"
+                 "somestring::"
                  "::"
                  "something:asd:asd"
                  "CL::::DEFUN")
@@ -352,7 +343,3 @@
                   (signals reader-error
                     (snooze-safe-simple-read:safe-simple-read-from-string string)))
       (delete-package crazy-package))))
-
-
-
-
