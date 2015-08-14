@@ -377,3 +377,5 @@
                                           (505 "Version not supported"))
           do (setf (gethash status hash) reason-phrase))
     hash))
+
+(defun reason-for (status-code) (gethash status-code *reason-phrase-hash*))

@@ -502,7 +502,7 @@ remaining URI after these discoveries."
             (t
              (format s "~a ~a"
                      status-code
-                     (gethash status-code snooze-common::*reason-phrase-hash*)))))))
+                     (reason-for status-code)))))))
 
 (define-condition http-condition (simple-condition)
   ((status-code :initarg :status-code :initform (error "Must supply a HTTP status code.")

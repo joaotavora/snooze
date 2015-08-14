@@ -33,7 +33,8 @@
    #:*all-resources*
    #:resource-name
    #:parse-keywords-in-uri
-   #:ensure-uri))
+   #:ensure-uri
+   #:reason-for))
 
 (defpackage #:snooze
   (:use #:cl #:snooze-common)

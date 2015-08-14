@@ -129,7 +129,7 @@ server.")
                        &rest format-args)
   "Signal an HTTP condition with STATUS-CODE with with CL:ERROR."
   (error 'http-condition :status-code status-code
-                         :format-control format-control
+                         :format-control (or format-control (reason-for status-code))
                          :format-arguments format-args))
 
 (defgeneric explain-condition (condition resource content-type )
