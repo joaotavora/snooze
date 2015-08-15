@@ -251,8 +251,6 @@
                            :defaults (lispdoc-root))))
    (make-hunchentoot-app )))
 
-(defparameter *)
-
 (defmethod hunchentoot:acceptor-dispatch-request :around ((a snooze-acceptor) request)
   (let ((hunchentoot:*dispatch-table* *lispdoc-dispatch-table*))
     (call-next-method)))
