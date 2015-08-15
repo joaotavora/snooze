@@ -270,17 +270,13 @@ Let's drift from the `lispdoc` example a bit. Consider this app fragment:
                      (name    :initarg :name    :accessor name)
                      (guitars :initarg :guitars :accessor number-of-guitars)))
 
-(defvar *beatles*
-  (loop for id from 0 for (name nguitars)
-          in '(("John" 20) ("Paul" 20) ("Ringo" 0) ("George" 300))
-        collect (make-instance 'beatle :id id :name name :guitars nguitars)))
+(defvar *beatles* ...)
 
 (defroute beatles (:get "text/plain" &key (key 'number-of-guitars) (predicate '>))
+  (assert-safe-functions key predicate)
   (format nil "~{~a~^~%~}"
           (mapcar #'name
-                  (handler-case
-                      (sort (copy-list *beatles*) predicate :key key)
-                    (error (e) (http-condition 400 "Bad sort predicate or key (~a)" e))))))
+                  (sort (copy-list *beatles*) predicate :key key))))
 
 (defgenpath beatles beatles-path)
 ```
@@ -305,15 +301,20 @@ the arguments `"foo"`, `"bar"` and `"baz"` to your application you
 merely need to add a CLOS method to the each of the generic functions
 `read-for-resource` and `write-for-resource`.
 
-I recommend you keep the default: `write-for-resource` uses
-`cl:write-to-string` and `read-for-resource` uses a very locked down
-version of `cl:read-to-string`, one that doesn't intern symbols, allow
-any kind of reader macros or read anything more complicated than a
-number, a string or a symbol. This is for security.
+I recommend you keep the default:
 
-Snooze allows even finer control over the way the URI is translated,
-so that individual arguments are read differently, or even
-combined. One might want, for example:
+* `read-for-resource` uses a very locked down version of
+   `cl:read-to-string`, one that doesn't intern symbols, allow any kind
+   of reader macros or read anything more complicated than a number, a
+   string or a symbol. The non-interning is for security.
+
+* `write-for-resource` does basically the inverse of
+  `read-for-resource`, writing onto a string representation that is
+  read back equivalently.
+
+If this is not enough, _Snooze_ allows even finer control over the way
+the URI is translated, so that individual arguments are read
+differently, or even combined. One might want, for example:
 
 ```
 GET beatle/3

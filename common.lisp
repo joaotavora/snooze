@@ -969,13 +969,47 @@ EXPLAIN-CONDITION.")
       string))))
 
 (defmethod read-for-resource (resource string)
+  "Read STRING as an OBJECT to pass to resource.
+
+This is the default method. It resembles READ-FROM-STRING, but will
+only read in numbers, symbols or strings. Unqualified symbols are read
+in the package where RESOURCE belongs, otherwise they must be
+package-qualified. If a symbol, package, qualified or not, does not
+exist, it is *not* created. Instead, an uninterned symbol of the
+intended name is returned instead.
+
+This means that:
+
+    (loop for outgoing in '(cl:defun
+                            :just-interned-this
+                            and-this
+                            #:uninterned)
+          for readback = (read-for-resource res
+                            (write-for-resource res outgoing))
+          collect
+          (list (eq outgoing readback)
+                (string= (string outgoing)
+                         (string readback))))
+
+
+Returns ((T T) (T T) (T T) (NIL T))."
   (let ((*package* (symbol-package (resource-name resource))))
     (snooze-safe-simple-read:safe-simple-read-from-string string t)))
 
 (defmethod write-for-resource (resource object)
+  "Transform OBJECT into a string to encode in an URI.
+
+This is the default method that always uses WRITE-TO-STRING, except in
+the special case that OBJECT is an uninterned symbol, where
+PRINC-TO-STRING is used on its downcased name.
+
+See also READ-FOR-RESOURCE"
   (let ((*package* (symbol-package (resource-name resource)))
         (*print-case* :downcase))
-    (write-to-string object)))
+    (if (and (symbolp object)
+             (not (symbol-package object)))
+        (princ-to-string (string-downcase (symbol-name object)))
+        (write-to-string object))))
 
 
 
