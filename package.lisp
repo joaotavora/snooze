@@ -101,12 +101,12 @@
    #:content-class-name
    #:*clack-request-env*
    #:make-clack-app
+   #:make-hunchentoot-app
    ;; default values for some options
    ;;
    #:default-resource-name
    #:search-for-extension-content-type
-   #:all-defined-resources
-   #:backend-payload))
+   #:all-defined-resources))
 
 (defpackage :snooze-types (:use) (:export #:content #:type))
 

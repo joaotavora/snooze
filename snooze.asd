@@ -17,10 +17,10 @@
   :components ((:file "snooze-tests")))
 
 (asdf:defsystem :snooze-demo
-  :depends-on (#:snooze #:alexandria #:cl-who
+  :depends-on (#:snooze #:alexandria #:cl-who #:cl-fad
                         #:cl-css #:hunchentoot #:cl-json
                         #:local-time #:local-time-duration)
   :serial t
-  :components ((:file "demo")))
+  :components ((:file "demo/lispdoc")))
 
 

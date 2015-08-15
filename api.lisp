@@ -235,6 +235,8 @@ BACKEND defaults to *BACKEND*"
 (defun make-clack-app (&optional bindings)
   "Make a basic Clack app that calls HANDLE-REQUEST.
 
+Pass this to CLACK:CLACKUP.
+
 Dynamically binds *CLACK-REQUEST-ENV* around every call to
 HANDLE-REQUEST so you can access the backend-specific from routes
 and/or EXPLAIN-CONDITION. Also binds *BACKEND* to :CLACK.
@@ -257,6 +259,57 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
                       `(,status-code
                         (:content-type ,payload-ct)
                         (,payload)))))))
+
+(defmethod backend-payload ((backend (eql :clack)) (type snooze-types:text))
+  (let* ((len (getf *clack-request-env* :content-length))
+         (str (make-string len)))
+    (read-sequence str (getf *clack-request-env* :raw-body))
+    str))
+
+
+
+;;; Direct hunchentoot integration
+;;;
+(defun make-hunchentoot-app (&optional bindings)
+  "Make a basic Hunchentoot dispatcher that calls HANDLE-REQUEST.
+
+Add this to HUNCHENTOOT:*DISPATCH-TABLE*, possibly after some static
+file dispatcher or other dispatcher you wish to kick in before
+Snooze. Then start an HUNCHENTOOT:EASY-ACCEPTOR at whichever port you
+choose.
+
+BINDINGS is an alist of (SYMBOL . VALUE) which is are also
+dynamically-bound around HANDLE-REQUEST. You can use it to pass values
+of special variables that affect Snooze, like *HOME-RESOURCE*,
+*RESOURCES-FUNCTION*, *RESOURCE-NAME-FUNCTION*, or
+*URI-CONTENT-TYPES-FUNCTION*."
+  (let ((request-uri-fn (read-from-string "hunchentoot:request-uri"))
+        (header-in-fn (read-from-string "hunchentoot:header-in"))
+        (request-method-fn (read-from-string "hunchentoot:request-method")))
+    (macrolet ((set-return-code (status-code)
+                 `(setf (,(read-from-string "hunchentoot:return-code*")) ,status-code))
+               (set-content-type (ct)
+                 `(setf (,(read-from-string "hunchentoot:content-type*")) ,ct)))
+      (lambda (request)
+        (lambda ()
+          (let ((*backend* :hunchentoot))
+            (progv
+                (mapcar #'car bindings)
+                (mapcar #'cdr bindings)
+              (multiple-value-bind (status-code payload payload-ct)
+                  (handle-request (funcall request-uri-fn request)
+                                  :method (funcall request-method-fn request)
+                                  :accept (funcall header-in-fn :accept request)
+                                  :content-type (funcall header-in-fn :content-type request))
+                (set-return-code status-code)
+                (set-content-type payload-ct)
+                (or payload "")))))))))
+
+(defmethod backend-payload ((backend (eql :hunchentoot)) (type snooze-types:text))
+  (let ((probe (funcall (read-from-string "hunchentoot:raw-post-data"))))
+    (assert (stringp probe) nil "Asked for a string, but request carries a ~a" (type-of probe))
+    probe))
+
 
 
 

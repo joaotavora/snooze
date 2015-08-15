@@ -847,12 +847,6 @@ EXPLAIN-CONDITION.")
   "Default value for *RESOURCES-FUNCTION*, which see."
   snooze-common:*all-resources*)
 
-(defmethod backend-payload ((backend (eql :clack)) (type snooze-types:text))
-  (let* ((len (getf *clack-request-env* :content-length))
-         (str (make-string len)))
-    (read-sequence str (getf *clack-request-env* :raw-body))
-    str))
-
 
 
 ;;; Reading and writing URI's
