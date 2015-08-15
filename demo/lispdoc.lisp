@@ -1,4 +1,5 @@
 (defpackage #:snooze-demo (:use #:cl #:snooze)
+            (:nicknames #:lispdoc)
             (:export
              #:stop
              #:start)
@@ -249,7 +250,7 @@
     "/css/" (fad:pathname-as-directory
             (make-pathname :name "js"
                            :defaults (lispdoc-root))))
-   (make-hunchentoot-app )))
+   (make-hunchentoot-app '((*home-resource* . homepage)))))
 
 (defmethod hunchentoot:acceptor-dispatch-request :around ((a snooze-acceptor) request)
   (let ((hunchentoot:*dispatch-table* *lispdoc-dispatch-table*))
