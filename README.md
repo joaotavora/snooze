@@ -1,10 +1,14 @@
+[![Build Status](https://travis-ci.org/capitaomorte/snooze.svg?branch=master)](https://travis-ci.org/capitaomorte/snooze)
 Snooze
 =======
 
-_Snooze_ is a framework for building REST web services in Common Lisp. 
+_Snooze_ is a framework for building REST web services in Common
+Lisp.
 
-Here's a very simple REST API to read and write Lisp documentation via
-HTTP:
+The primary goal is to make the programmer stay as close to the
+regular Lisp idioms as possible, even while writing with HTTP in mind.
+
+Here's one such REST service to access Lisp documentation over HTTP:
 
 ```lisp
 (defpackage #:readme-demo (:use #:cl #:snooze))
@@ -27,7 +31,7 @@ HTTP:
 ```
 
 No regular expressions, annotations or funny argument-matching syntax: routes
-not only *look like* functions, they *are* functions.
+not only **look like** functions, they **are** functions.
 
 Here are the routes thus defined and some of the error reporting you
 get for free:
@@ -47,7 +51,9 @@ PUT /lispdoc/defun                         => 415 Unsupported Media Type
 Content-type: application/json
 ```
 
-Checkout the [tutorial](#tutorial), which builds on this application.
+Checkout the [tutorial](#tutorial), which builds on this
+application. If you're intrigued about how and why URI paths become
+symbols arguments to your routes, [read here](#how-snooze-converts-uri-components-to-arguments)
 
 Rationale
 ---------
@@ -88,6 +94,7 @@ how to:
 * [dispatch on HTTP methods and content-types](#content-types)
 * [generate and encode compatible URIs](#uri-generation)
 * [grafully handle failure conditions](#controlling-errors)
+* [control conversion of URI arguments](#how-snooze-converts-uri-components-to-arguments)
 * [refactor routes without changing the API](#tighter-routes)
 * [hook _Snooze_ into the backend of your choice](#other-backends)
 
@@ -247,6 +254,73 @@ Finally, you can play around with `*catch-errors*` and
 `*catch-http-conditions*` set to `t` and `*catch-errors*` set to
 either `:verbose` or `nil` depending on whether I want to do debugging
 in the browser or in Emacs.
+
+How Snooze converts URI components to arguments
+-----------------------------------------------
+
+You might have noticed already that the CLOS generic functions that
+represent resources take as arguments actual Lisp symbols extracted
+from the URI, whereas other frameworks normally pass them as strings.
+
+Let's drift from the `lispdoc` example a bit. Consider this app fragment:
+
+
+```lisp
+(defclass beatle () ((id      :initarg :id)
+                     (name    :initarg :name    :accessor name)
+                     (guitars :initarg :guitars :accessor number-of-guitars)))
+
+(defvar *beatles*
+  (loop for id from 0 for (name nguitars)
+          in '(("John" 20) ("Paul" 20) ("Ringo" 0) ("George" 300))
+        collect (make-instance 'beatle :id id :name name :guitars nguitars)))
+
+(defroute beatles (:get "text/plain" &key (key 'number-of-guitars) (predicate '>))
+  (format nil "~{~a~^~%~}"
+          (mapcar #'name
+                  (handler-case
+                      (sort (copy-list *beatles*) predicate :key key)
+                    (error (e) (http-condition 400 "Bad sort predicate or key (~a)" e))))))
+
+(defgenpath beatles beatles-path)
+```
+
+`beatles-path`, when passed actual symbols naming functions that are
+have meaning in your application domain, will generate perfect URI's
+for accesing the `beatles` route. So
+
+```lisp
+(beatles-path :key 'name :predicate 'string-lessp)
+```
+
+returns
+
+```lisp
+"/beatles/?key=name&predicate=string-lessp"
+```
+
+Secondly this is only the default behaviour of Snooze, and is entirely
+configurable: if you really want to have the path `foo/bar/baz` become
+the arguments `"foo"`, `"bar"` and `"baz"` to your application you
+merely need to add a CLOS method to the each of the generic functions
+`read-for-resource` and `write-for-resource`.
+
+I recommend you keep the default: `write-for-resource` uses
+`cl:write-to-string` and `read-for-resource` uses a very locked down
+version of `cl:read-to-string`, one that doesn't intern symbols, allow
+any kind of reader macros or read anything more complicated than a
+number, a string or a symbol. This is for security.
+
+Snooze allows even finer control over the way the URI is translated,
+so that individual arguments are read differently, or even
+combined. One might want, for example:
+
+```
+GET beatle/3
+```
+
+where `3` is an id, to pass an actual `beatle` object to the
+route. This is explained in the next section.`
 
 Tighter routes
 ---------------
