@@ -22,7 +22,7 @@ Here's one such REST service to access Lisp documentation over HTTP:
   (or (documentation (find-symbol-or-lose name package) doctype)
       (http-condition 404 "Sorry, ~a doesn't have any ~a doc" name doctype)))
 
-(defroute lispdoc (:put :text/plain name &key (package :cl) (doctype 'function))
+(defroute lispdoc (:post :text/plain name &key (package :cl) (doctype 'function))
   (setf (documentation (find-symbol-or-lose name package) doctype)
         (payload-as-string)))
 
@@ -44,10 +44,10 @@ GET /lispdoc/in/?valid=args                => 400 Bad Request
 GET /lispdoc/defun                         => 406 Not Acceptable 
 Accept: application/json
 
-PUT /lispdoc/scan?package=cl-ppcre         => 200 OK 
+POST /lispdoc/scan?package=cl-ppcre        => 200 OK 
 Content-type: text/plain
 
-PUT /lispdoc/defun                         => 415 Unsupported Media Type 
+POST /lispdoc/defun                        => 415 Unsupported Media Type 
 Content-type: application/json
 ```
 
@@ -55,19 +55,21 @@ Checkout the [tutorial](#tutorial), which builds on this
 application. If you're intrigued about how and why URI paths become
 symbols arguments to your routes, [read here](#how-snooze-converts-uri-components-to-arguments)
 
+Ah, snooze is kinda **BETA** and the usual disclaimer of warranty applies.
+
 Rationale
 ---------
 
 _Snooze_ maps [REST/HTTP](https://en.wikipedia.org/wiki/REST) concepts
 to Common Lisp concepts:
 
-| HTTP concept                        | Snooze CL concept                   |
-| :---------------------------------- | ----------------------------------: |
-| Verbs (`GET`, `PUT`, `DELETE`, etc) | CLOS specializer on first argument  |
-| `Accept:` and `Content-Type:`       | CLOS specializer on second argument |
-| URI path (`/path1/path2/path3)`)    | Required and optional arguments     |
-| URL queries (`?param=value&p2=v2`)  | Keyword arguments                   |
-| Status codes (`404`, `500`, etc)    | CL conditions                       |
+| HTTP concept                         | Snooze CL concept                   |
+| :----------------------------------- | ----------------------------------: |
+| Verbs (`GET`, `POST`, `DELETE`, etc) | CLOS specializer on first argument  |
+| `Accept:` and `Content-Type:`        | CLOS specializer on second argument |
+| URI path (`/path1/path2/path3)`)     | Required and optional arguments     |
+| URL queries (`?param=value&p2=v2`)   | Keyword arguments                   |
+| Status codes (`404`, `500`, etc)     | CL conditions                       |
 
 This has some advantages, for example
 
@@ -132,12 +134,12 @@ Though you should probably escape the HTML with something like
 specializing directly to `text/html` once you start needing some more
 HTML-specific behaviour.
 
-Finally, let's accept `PUT` requests with JSON content. In this
+Finally, let's accept `POST` requests with JSON content. In this
 version we accept the `package` and `doctype` parameters in the JSON
 request's body.
 
 ```lisp
-(defroute lispdoc (:put "application/json" name &key (package :cl) (doctype 'function))
+(defroute lispdoc (:post "application/json" name &key (package :cl) (doctype 'function))
   (let* ((json (handler-case
                    ;; you'll need to quickload :cl-json
                    (json:decode-json-from-string
