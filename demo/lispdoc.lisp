@@ -10,9 +10,17 @@
                           #:with-html-output
                           #:with-html-output-to-string)
             (:import-from #:cl-css
-                          #:inline-css))
+                          #:inline-css)
+            (:import-from #:hunchentoot
+                          #:*request*
+                          #:header-in
+                          #:header-out
+                          #:post-parameter))
 (in-package #:snooze-demo)
 
+
+;;; Micro framework start
+;;; 
 (defmacro deftemplate (name (stream-var &rest lambda-list-args) &body who-args)
   "A micro HTML-templating framework"
   (alexandria:with-gensyms (body function)
@@ -24,7 +32,7 @@
                    ,@who-args)
                  nil)))
 
-       (defmacro ,name ((stream &rest args ,@lambda-list-args) &body ,body)
+       (defmacro ,name (&whole args (stream ,@lambda-list-args) &body ,body)
          (declare (ignore ,@(loop for thing in lambda-list-args
                                   for sym = (if (consp thing) (car thing) thing)
                                   unless (eq #\& (char (string sym) 0))
@@ -34,9 +42,20 @@
                    (with-html-output (,stream nil :indent t)
                      ,@,body))
                  ,stream
-                 ,(cons 'list args))))))
+                 ,(cons 'list (rest (second args))))))))
 
+(defun harvest-validation (form-name who-args)
+  (declare (ignore form-name))
+  who-args)
 
+(defmacro defform (name (stream-var &rest lambda-list-args) &body body)
+  `(defun ,name (,stream-var ,@lambda-list-args)
+     (cl-who:with-html-output (,stream-var)
+       ,@(harvest-validation name body))))
+
+
+;;; Lispdoc start
+;;;
 (defresource lispdoc (verb ct symbol) (:genpath lispdoc-path))
 
 (defresource homepage (verb ct))
@@ -135,7 +154,19 @@
                 (:div :class "ld-center-row" (yield)))
           (:div :class "pure-u-5-24 pure-menu"
                 (when right-render (funcall right-render stream)))))
-    (:footer :class "pure-g")))
+   (:footer :class "pure-g")))
+
+(defform render-docstring-form (s sym heading)
+  (:form :class "pure-form" :action (lispdoc-path sym) :method :post
+         (:legend  heading)
+         (:fieldset :class "pure-group"
+                    (:textarea :class "pure-input-1"
+                               :name "docstring"
+                               :placeholder (fmt "Really good docstring for ~a" sym))
+                    (:input :type "text" :name "name" :class "pure-input-1" :placeholder "Your name")
+                    (:input :type "text" :name "email" :class "pure-input-1" :placeholder "Your email. For some gravatar-antics."))
+         (:button :type "submit" :class "pure-button pure-input-1 pure-button-primary ld-secondary-highlight"
+                  "Submit!")))
 
 (defroute lispdoc (:get "text/html" (sym symbol))
   (with-output-to-string (s)
@@ -145,17 +176,25 @@
               (if doc
                   (htm (:p (str (cl-who:escape-string-all doc))))
                   (htm (:p (fmt "There's no doc for ~a" sym))))
-              (:form :class "pure-form"
-               (:legend  (if doc
-                             (fmt "Add your take on ~a" sym)
-                             "Care to add some?"))
-               (:fieldset :class "pure-group"
-                          (:textarea :class "pure-input-1"
-                                     :placeholder (fmt "Really good docstring for ~a" sym))
-                          (:input :type "text" :class "pure-input-1" :placeholder "Your name")
-                          (:input :type "text" :class "pure-input-1" :placeholder "Your email. For some gravatar-antics."))
-               (:button :type "submit" :class "pure-button pure-input-1 pure-button-primary ld-secondary-highlight"
-                        "Submit!")))))))
+              (render-docstring-form s sym (if doc
+                                               (fmt "Add your take on ~a" sym)
+                                               "Care to add some?")))))))
+
+(defroute lispdoc (:post "application/x-www-form-urlencoded" (sym symbol))
+  (with-output-to-string (s)
+    (let ((docstring (hunchentoot:post-parameter "docstring")))
+      (cond (docstring
+             (setf (documentation sym 'function) docstring)
+             (push
+              `(,(hunchentoot:post-parameter "name")
+                ,(hunchentoot:post-parameter "email")
+                ,(local-time:now)
+                ,sym
+                ,docstring)
+              *doc-changes*))
+            (t
+             (http-condition 490 "something's fishy"))))
+    (signal 'redirect :status-code 303 :location (lispdoc-path sym))))
 
 (defmethod uri-to-arguments ((resource (eql #'lispdoc)) uri)
   #+allegro (declare (ignore uri))
@@ -197,7 +236,14 @@
 
 (defmethod explain-condition ((c http-condition) (resource (eql #'lispdoc)) (ct snooze-types:text/html))
   (with-html-output (*explain-stream*)
-    (:i (fmt "You have a ~a: ~a" (status-code c) c))))
+    (:i (fmt "Ooops: ~a" c))))
+
+(define-condition redirect (http-condition)
+  ((location :initarg :location :accessor location)))
+
+(defmethod explain-condition :around ((c redirect) (resource (eql #'lispdoc)) (ct snooze-types:text))
+  (setf (hunchentoot:header-out :location) (location c))
+  (format nil "See here: ~a" (location c)))
 
 (defroute snooze (:get "text/css")
   (cl-css:css

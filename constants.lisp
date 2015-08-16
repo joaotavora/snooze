@@ -161,6 +161,7 @@
     ("application/x-xcf" "xcf")
     ("application/x-xfig" "fig")
     ("application/x-xpinstall" "xpi")
+    ("application/x-www-form-urlencoded")
     ("audio/basic" "au" "snd")
     ("audio/midi" "mid" "midi" "kar")
     ("audio/mpeg" "mpga" "mpega" "mp2" "mp3" "m4a")
