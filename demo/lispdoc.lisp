@@ -8,7 +8,9 @@
                           #:fmt
                           #:str
                           #:with-html-output
-                          #:with-html-output-to-string))
+                          #:with-html-output-to-string)
+            (:import-from #:cl-css
+                          #:inline-css))
 (in-package #:snooze-demo)
 
 (defmacro deftemplate (name (stream-var &rest lambda-list-args) &body who-args)
@@ -59,15 +61,15 @@
 
 (defun render-some-symbols (stream &optional (package :cl))
   (with-html-output (stream)
-    (:span :class "red-highlight pure-menu-heading"
+    (:span :class "ld-secondary-highlight pure-menu-heading"
            (fmt "Symbols of ~a" package))
-    (:ul :class "pure-menu-list demo-menu"
+    (:ul :class "pure-menu-list ld-center-row"
          (loop for sym being the external-symbols of package
-          ;; repeat 100
-          do (htm
-              (:li :class "pure-menu-item"
-                   (:a :href (lispdoc-path sym) :class "pure-menu-link"
-                       (fmt "~a" sym))))))))
+               ;; repeat 100
+               do (htm
+                   (:li :class "pure-menu-item"
+                        (:a :href (lispdoc-path sym) :class "pure-menu-link"
+                            (fmt "~a" sym))))))))
 
 (defun md5-as-string (input)
   (format nil "~(~{~2,'0X~}~)"
@@ -82,25 +84,26 @@
 
 (defun render-recent-changes (stream)
   (with-html-output (stream)
-    (:span :class "red-highlight pure-menu-heading" "Recent additions")
-    (loop for (name email stamp symbol proposed) in *doc-changes*
-          for i from 0
-          do (htm
-              (:div :class "pure-something" :style (cl-css:inline-css '(border-bottom "1px solid grey"))
-                    (:div :class "recent-change-heading" :style (cl-css:inline-css '(height 30px font-size 80% padding 10px))
-                          (:img :class "sidebar-avatar pure-img" :src
-                                (format nil "http://www.gravatar.com/avatar/~a?s=30"
-                                        (md5-as-string
-                                         (string-downcase (string-trim #(#\Space #\Newline) email)))))
-                          (:div :class "change-name"
-                                  (htm (:div (fmt "~a documented " name)
-                                              (:a :class "symbol-link" :href (str (lispdoc-path symbol))
-                                                  (let ((*package* (find-package :keyword)))
-                                                    (fmt "~a" symbol))))
-                                       (:div
-                                        (fmt "~a" (render-pretty-date nil stamp))))))
-                    (:div (:p :class "recent-change recent-change-quote"
-                              (fmt "\"~a\"" proposed))))))))
+    (:span :class "ld-secondary-highlight pure-menu-heading" "Recent additions")
+    (:div :class "ld-center-row"
+          (loop for (name email stamp symbol proposed) in *doc-changes*
+                for i from 0
+                do (htm
+                    (:div :class "" :style (cl-css:inline-css '(border-bottom "1px solid grey"))
+                          (:div :class "ld-recent-change-heading" :style (cl-css:inline-css '(height 30px font-size 80% padding 10px))
+                                (:img :class "ld-sidebar-avatar pure-img" :src
+                                      (format nil "http://www.gravatar.com/avatar/~a?s=30"
+                                              (md5-as-string
+                                               (string-downcase (string-trim #(#\Space #\Newline) email)))))
+                                (:div :class "ld-change-name"
+                                      (htm (:div (fmt "~a documented " name)
+                                                 (:a :class "ld-symbol-link" :href (str (lispdoc-path symbol))
+                                                     (let ((*package* (find-package :keyword)))
+                                                       (fmt "~a" symbol))))
+                                           (:div
+                                            (fmt "~a" (render-pretty-date nil stamp))))))
+                          (:div (:p :class "ld-recent-change ld-recent-change-quote"
+                                    (fmt "\"~a\"" proposed)))))))))
 
 ;; (defun render-doc (stream sym doctype)
 ;;   (declare (ignore doctype))
@@ -119,15 +122,17 @@
    (:body
     (:header :class "pure-g"
              (:div :class "pure-u-1" 
-                   (:h3 (:span :style (cl-css:inline-css '(font-style italic color white font-size 110%)) "Docstrung" )
-                        (str ", saving lisp one docstring at a time") ))))
+                   (:h3 :class "ld-heading"
+                        (:div :style (inline-css '(font-style italic color white font-size 150%)) "Docstrung" )
+                        (:div :style (inline-css '(font-size 100% position absolute left 172px top 35px)) (str ", saving lisp one docstring at a time")) ))))
    (:section
     (:div :id "layout" :class "pure-g"
           (:div :class "pure-u-5-24 pure-menu"
                 (when left-render (funcall left-render stream)))
           (:div :class "content pure-u-14-24"
-                (:div :class "pure-menu-heading center-heading secondary-highlight" "Description")
-                (:div :class "inner-content" (yield)))
+                (:div :class "pure-menu-heading ld-center-heading ld-primary-highlight"
+                      (str title))
+                (:div :class "ld-center-row" (yield)))
           (:div :class "pure-u-5-24 pure-menu"
                 (when right-render (funcall right-render stream)))))
     (:footer :class "pure-g")))
@@ -136,7 +141,7 @@
   (with-output-to-string (s)
     (let ((doc (documentation sym 'function)))
       (with-basic-page (s :title (symbol-name sym))
-        (:div :class "main symdesc"
+        (:div :class "ld-main ld-symdesc"
               (if doc
                   (htm (:p (str (cl-who:escape-string-all doc))))
                   (htm (:p (fmt "There's no doc for ~a" sym))))
@@ -149,7 +154,7 @@
                                      :placeholder (fmt "Really good docstring for ~a" sym))
                           (:input :type "text" :class "pure-input-1" :placeholder "Your name")
                           (:input :type "text" :class "pure-input-1" :placeholder "Your email. For some gravatar-antics."))
-               (:button :type "submit" :class "pure-button pure-input-1 pure-button-primary red-highlight"
+               (:button :type "submit" :class "pure-button pure-input-1 pure-button-primary ld-secondary-highlight"
                         "Submit!")))))))
 
 (defmethod uri-to-arguments ((resource (eql #'lispdoc)) uri)
@@ -182,7 +187,7 @@
     (with-basic-page (*explain-stream* :title "Snooze error"
                                        ;; :left-render nil
                                        :right-render nil)
-      (:p :class "main"
+      (:p :class "ld-main"
           (call-next-method)))))
 
 (defmethod explain-condition ((c error) (resource (eql #'lispdoc)) (ct snooze-types:text/html))
@@ -196,34 +201,35 @@
 
 (defroute snooze (:get "text/css")
   (cl-css:css
-   `(("#layout" :height 600px)
+   `(("#layout")
      ("html, button, input, select, textarea, .pure-g [class *= \"pure-u\"]"
       :font-family "Georgia, Times, \"Times New Roman\", serif")
-     (header :height 60px :background slategrey :color lightgray)
+     (header :height 80px :background slategrey :color lightgray)
      (footer :height 250px :background slategrey)
-     (.red-highlight :background gray)
-     (.secondary-highlight :background slategrey )
-     (.center-heading :text-align center)
-     (.recent-change :height 100px :padding 10px)
-     (.recent-change-quote :overflow-y hidden :font-style italic)
-     (.change-name :align center :text-align right)
-     (.symbol-link :text-decoration none :color darkslategrey)
-     (.sidebar-avatar :float left)
-     (.symdesc :padding 10%
+     (.ld-secondary-highlight :background gray :color white)
+     (.ld-primary-highlight :background slategrey :color white)
+     (.ld-center-heading :text-align center :font-style italic :color white :font-size 100%)
+     (.ld-recent-change :height 100px :padding 10px)
+     (.ld-recent-change-quote :overflow-y hidden :font-style italic)
+     (.ld-change-name :align center :text-align right)
+     (.ld-symbol-link :text-decoration none :color darkslategrey)
+     (.ld-sidebar-avatar :float left)
+     (.ld-symdesc :padding 10%
                :padding-top 0
                :padding-bottom 0)
-     (.edit-desc :width 100%)
      (.pure-menu-item :height auto)
-     (.demo-menu :overflow-y scroll
-                 :overflow-x hidden
-                 :height 100%)
-     (.main :padding 20%
+     (.ld-center-row :overflow-y scroll
+                     :overflow-x hidden
+                     :min-height 300
+                     :height 90%)
+     (.ld-heading :padding-left 1em)
+     (.ld-main :padding 20%
             :text-align center))))
 
 (defroute homepage (:get "text/html")
   (with-output-to-string (s)
       (with-basic-page (s :title "Docstrung")
-        (:div :class "main" (:i "Welcome, click a symbol on the left side")))))
+        (:div :class "ld-main" (:i "Welcome, click a symbol on the left side")))))
 
 (defun lispdoc-root ()
   (fad:pathname-as-directory
