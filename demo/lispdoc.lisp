@@ -44,14 +44,32 @@
                  ,stream
                  ,(cons 'list (rest (second args))))))))
 
-(defun harvest-validation (form-name who-args)
-  (declare (ignore form-name))
-  who-args)
+(defvar *validators*)
+
+(defmethod cl-who:convert-tag-to-string-list :around (tag attr-list body body-fn)
+  (let ((validator
+          (and (boundp '*validators*)
+               (cdr (assoc :validate attr-list)))))
+    (cond (validator
+           (push validator *validators*)
+           (call-next-method tag (remove :validate attr-list :key #'car) body body-fn))
+          (t
+           (call-next-method)))))
 
 (defmacro defform (name (stream-var &rest lambda-list-args) &body body)
-  `(defun ,name (,stream-var ,@lambda-list-args)
-     (cl-who:with-html-output (,stream-var)
-       ,@(harvest-validation name body))))
+  (let* ((ok nil)
+         (*macroexpand-hook*
+           (lambda (expander form env)
+             (let ((*validators* nil))
+               (prog1 (funcall expander form env)
+                 (setq ok (nconc *validators* ok)))))))
+    (prog1
+        `(defun ,name (,stream-var ,@lambda-list-args)
+           ,(macroexpand
+             `(cl-who:with-html-output (,stream-var)
+                ,@body)))
+      (format *debug-io* "Ok got ~a for ~a~%" ok name))))
+
 
 
 ;;; Lispdoc start
@@ -163,7 +181,7 @@
                     (:textarea :class "pure-input-1"
                                :name "docstring"
                                :placeholder (fmt "Really good docstring for ~a" sym))
-                    (:input :type "text" :name "name" :class "pure-input-1" :placeholder "Your name")
+                    (:input :type "text" :name "name" :class "pure-input-1" :placeholder "Your name" :validate "coiso")
                     (:input :type "text" :name "email" :class "pure-input-1" :placeholder "Your email. For some gravatar-antics."))
          (:button :type "submit" :class "pure-button pure-input-1 pure-button-primary ld-secondary-highlight"
                   "Submit!")))
