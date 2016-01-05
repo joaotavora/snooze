@@ -52,6 +52,13 @@
               content-types))))
 
 (deftest test-parse-uri ()
+  ;; HACK: Interning BAR here, in :SNOOZE-TESTS is needed, because,
+  ;; even with &ALLOW-OTHER-KEYS, snooze refuses, by default, to
+  ;; create keyword symbols that don't have a corresponding symbol in
+  ;; the resource's package.
+  ;; 
+  (intern "BAR" (snooze::resource-package
+                (snooze::find-resource 'bla)))
   (multiple-value-bind (resource pargs kwargs)
       (parse-uri-for-tests "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal")
     (declare (ignore pargs kwargs))

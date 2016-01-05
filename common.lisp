@@ -909,9 +909,12 @@ EXPLAIN-CONDITION.")
                           (or query-part ""))))
       string))))
 
+(defun resource-package (resource)
+  (symbol-package (resource-name resource)))
+
 (defmethod uri-to-arguments (resource relative-uri)
   "Default method of URI-TO-ARGUMENTS, which see."
-  (flet ((probe (str &optional key)
+  (labels ((probe (str &optional key)
            (handler-bind
                ((error (lambda (e)
                          (when *catch-errors*
@@ -920,10 +923,24 @@ EXPLAIN-CONDITION.")
                                   :unconvertible-argument-key key
                                   :original-condition e
                                   :format-control "Malformed arg for resource ~a"
-                                  :format-arguments (list (resource-name *resource*)))))))
+                                  :format-arguments (list (resource-name resource)))))))
              (progn
                (let ((*read-eval* nil))
-                 (read-for-resource resource str))))))
+                 (read-for-resource resource str)))))
+           (probe-keyword (str)
+             (let* ((probe (probe str)))
+               (if (and (symbolp probe)
+                        (symbol-package probe)
+                        (eq (symbol-package probe)
+                            (resource-package resource)))
+                   (intern (symbol-name probe) :keyword)
+                   ;; Though perhaps that keyword is accepted, we
+                   ;; refuse to intern it if the symbol with the same
+                   ;; name doesn't exist in the resource's package.
+                   ;;
+                   (error 'invalid-resource-arguments
+                          :format-control "Unknown keyword for resource ~a"
+                          :format-arguments (list (resource-name resource)))))))
     (when relative-uri
       (let* ((relative-uri (ensure-uri relative-uri))
              (path (quri:uri-path relative-uri))
@@ -937,16 +954,17 @@ EXPLAIN-CONDITION.")
                                  (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
                                        for (undecoded-key-name undecoded-value-string) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
                                        when (and undecoded-key-name undecoded-value-string)
-                                         collect (cons (intern (string-upcase
-                                                                (quri:url-decode undecoded-key-name))
-                                                               :keyword)
-                                                       (quri:url-decode undecoded-value-string))))
-                            (when fragment
-                              `((snooze:fragment . ,fragment))))))
+                                         collect (cons (quri:url-decode undecoded-key-name)
+                                                       (quri:url-decode undecoded-value-string)))))))
         (values
          (mapcar #'probe (mapcar #'quri:url-decode plain-args))
-         (loop for (key . value) in keyword-args
-               collect (cons key (probe value key))))))))
+         (loop for (key-str . value-str) in keyword-args
+               collect (cons (probe-keyword key-str)
+                             (probe value-str key-str))
+                 into keyword-alist
+               finally (return (append keyword-alist
+                                       (if fragment
+                                           `((snooze:fragment . ,(probe fragment))))))))))))
 
 (defmethod arguments-to-uri (resource plain-args keyword-args)
   (flet ((encode (thing &optional keyword)
@@ -993,7 +1011,7 @@ This means that:
 
 
 Returns ((T T) (T T) (T T) (NIL T))."
-  (let ((*package* (symbol-package (resource-name resource))))
+  (let ((*package* (resource-package resource)))
     (snooze-safe-simple-read:safe-simple-read-from-string string t)))
 
 (defmethod write-for-resource (resource object)
