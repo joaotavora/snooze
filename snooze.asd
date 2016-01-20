@@ -8,6 +8,7 @@
   :components ((:file "package")
                (:file "constants")
                (:file "safe-simple-read")
+               (:file "http")
                (:file "common")
                (:file "api")))
 

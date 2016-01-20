@@ -1,27 +1,10 @@
 (in-package #:snooze-common)
 
-
-;;; Verbs
-;;;
-;;; "Sending" and "Receiving" are always from the server's
-;;; perspective. Hence GET is "sending to client" and POST and PUT are
-;;; "receiving from client".
-;;; 
-(defpackage :snooze-verbs (:use) (:export #:http-verb #:get #:post #:put #:delete
-                                          #:content-verb
-                                          #:receiving-verb
-                                          #:sending-verb))
 
-(cl:defclass snooze-verbs:http-verb      () ())
-(cl:defclass snooze-verbs:delete         (snooze-verbs:http-verb) ())
-(cl:defclass snooze-verbs:content-verb   (snooze-verbs:http-verb) ())
-(cl:defclass snooze-verbs:receiving-verb (snooze-verbs:content-verb) ())
-(cl:defclass snooze-verbs:sending-verb   (snooze-verbs:content-verb) ())
-(cl:defclass snooze-verbs:post           (snooze-verbs:receiving-verb) ())
-(cl:defclass snooze-verbs:put            (snooze-verbs:receiving-verb) ())
-(cl:defclass snooze-verbs:get            (snooze-verbs:sending-verb) ())
-
-(defun destructive-p (verb) (typep verb 'snooze-verbs:receiving-verb))
+(defun destructive-p (verb)
+  "Returns true if it is possible for a request with the http VERB to modify
+the server state."
+  (typep verb 'snooze-verbs:receiving-verb))
 
 
 ;;; Content-types
