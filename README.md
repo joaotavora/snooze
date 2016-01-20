@@ -2,8 +2,9 @@
 Snooze
 =======
 
-_Snooze_ is a framework for building REST web services in Common
-Lisp.
+_Snooze_ is an URL router for Common Lisp: it maps back and forth
+between URL strings and CL concepts. It's designed around REST web
+services.
 
 The primary goal is to make the programmer stay as close to the
 regular Lisp idioms as possible, even while writing with HTTP in mind.
@@ -130,7 +131,7 @@ easiest way is:
 ```
 
 Though you should probably escape the HTML with something like
-[cl-who][cl-who]'s `escape-string-all``. You might also consider
+[cl-who][cl-who]'s `escape-string-all`. You might also consider
 specializing directly to `text/html` once you start needing some more
 HTML-specific behaviour.
 
@@ -225,7 +226,7 @@ gets sent to the client. It uses a generic function and two variables:
 * `*catch-http-conditions*`
 
 Out of the box, there are no methods on `explain-condition` and the
-first two variables are set to `t` by default.
+two variables are set to `t`.
 
 This means that any HTTP condition or a Lisp error in your application
 will generate a very terse reply in plain-text containing only the
@@ -323,7 +324,7 @@ GET beatle/3
 ```
 
 where `3` is an id, to pass an actual `beatle` object to the
-route. This is explained in the next section.`
+route. This is explained in the next section.
 
 Tighter routes
 ---------------
@@ -381,7 +382,7 @@ where `uri-to-arguments` and `arguments-to-uri` might help:
                                            resource
                                            (package-name (symbol-package sym))))
                             keyword-args))))
-```
+````
 
 We can now safely rewrite the remaining routes in much simpler fashion:
 
@@ -423,11 +424,14 @@ Other backends
 _Snooze_ is backend-agnostic. You can use [Clack][clack], which is a
 good option, or anything else.
 
-_Snooze_ offers with `make-clack-app` for quickly jumping into the
-action, but doesn't "require" Clack in any sense. Here's a way to hook
-_Snooze_ to Hunchentoot directly:
+_Snooze_ offers with `make-clack-app` and `make-hunchentoot-app` for
+quickly jumping into the action, but doesn't "require" Clack or
+Hunchentoot in any sense.
 
-```
+For reference, here's how to hook _Snooze_ to Hunchentoot directly
+(this is more or less what the bundled `make-hunchentoot-app` does).
+
+```lisp
 (defclass snooze-acceptor (hunchentoot:acceptor)
   ((snooze-bindings :initarg :snooze-bindings :initform nil :accessor snooze-bindings)))
 
@@ -468,7 +472,7 @@ _Snooze_ to Hunchentoot directly:
                          ;; to display when the URI is empty
                          :snooze-bindings `((*home-resource* . homepage))
                          args))))
-```
+````
 
 Support
 -------
