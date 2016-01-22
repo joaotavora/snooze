@@ -25,43 +25,45 @@ RESOURCE is a symbol or a string designating a resource"
 (defparameter *catch-http-conditions* t
   "If non-NIL, catch HTTP conditions and explain them to the client.
 
-If T (the default,) this means that any conditions which are *not a
-fault of the server* (thus excluding HTTP 500-class conditions) will
-generate a response to the user-agent. To generate this response,
-Snooze will first try EXPLAIN-CONDITION to \"politely\" explain the
-condition in a format accepted by the user-agent, as indicated in the
-\"Accept:\" header. the condition to the client. If that fails, the
+If T (the default), any conditions which are *not a fault of the
+server* (thus excluding HTTP 500-class conditions), will result in a
+response to the user-agent.
+
+To compose this response, Snooze will first try EXPLAIN-CONDITION to
+\"politely\" explain the condition in a format accepted by the
+user-agent, as indicated in the \"Accept:\" header. If that fails, the
 condition is presented very succintly to the client.
 
 If the value is the keyword :VERBOSE, don't call EXPLAIN-CONDITION and
 present a plain-text explanation with a full Lisp backtrace indicating
-where the condition originated. This options is useful during
+where the condition originated. This option is useful during
 development.
 
-If set to NIL errors will bubble up out of snooze and possible land
-you in the debugger. This option is useful during development if you
-prefer an interactive debugger.")
+If set to NIL, HTTP conditions will bubble up out of snooze and
+possible land you in the debugger. This option also is useful during
+development if you prefer an interactive debugger.")
 
 (defparameter *catch-errors* t
   "If non-NIL, catch any error and explain them to the client.
 
-If T (the default,) this means that *any* erroneous conditions that
-are a *fault of the server and not of the user-agent* (and this
-includes HTTP 500-class conditions) will generate a response to the
-user-agent. To generate this response, Snooze will first try
-EXPLAIN-CONDITION to \"politely\" explain the condition in a format
-accepted by the user-agent, as indicated in the \"Accept:\"
-header. the condition to the client. If that fails, the error is
-presented very succintly to the client.
+If T (the default), *any* erroneous conditions that are a *fault of
+the server and not of the user-agent*, including errors *and* HTTP
+500-class conditions voluntarily signalled by the program logic, will
+still result in a response to the user-agent.
+
+To compose this response, Snooze will first try EXPLAIN-CONDITION to
+\"politely\" explain the condition in a format accepted by the
+user-agent, as indicated in the \"Accept:\" header. If that fails, the
+error is presented very succintly to the client.
 
 If the value is the keyword :VERBOSE, don't call EXPLAIN-CONDITION and
 offer a plain text explanation with a full Lisp backtrace indicating
-where the condition originated. This options is useful during
+where the condition originated. This option is useful during
 development.
 
-If set to NIL errors will bubble up out of snooze and possible land
-you in the debugger. This option is useful during development if you
-prefer an interactive debugger")
+If set to NIL, errors will bubble up out of snooze and possible land
+you in the debugger. This option is also useful during development if
+you prefer an interactive debugger")
 
 (defvar *resource-filter* (constantly t)
   "Tell if a resource should be considered when handling requests.
