@@ -115,12 +115,13 @@ string representing a (quite possibly) encoded URI.
 
 This function should return two values: a list of content-type
 designators and the rewritten URI path stripped of its
-content-designating componenets. The function can also return NIL.
+content-designating components. The function may also return NIL.
 
-The default value is SEARCH-FOR-EXTENSION-CONTENT-TYPE, which looks
-for the first filename extension in the URI path, returns a list of
-the suitable content-type as the first value and, as the second value,
-the URI path stripped of the extension.
+The default value is SEARCH-FOR-EXTENSION-CONTENT-TYPE looks for the
+first filename know extension inside the URI path. If found, it
+returns a singleton list with that content type as the first value
+and, as the second value, the URI path stripped of the extension
+thus found.
 
 Can be let-bound to modify the URI scheme used by a particular
 server.")
