@@ -643,6 +643,23 @@ out with NO-SUCH-ROUTE."
                                        (cond ((eq *catch-errors* :verbose)
                                               (invoke-restart 'explain-verbosely))
                                              (*catch-errors*
+                                              (invoke-restart 'failsafe-explain))
+                                             (;; HACK! notice that a
+                                              ;; non-error
+                                              ;; `http-condition'
+                                              ;; (like a simple
+                                              ;; redirect) with
+                                              ;; `*catch-errors*' =
+                                              ;; NIL and
+                                              ;; `*catch-http-conditions*'
+                                              ;; = T will land us in
+                                              ;; this branch. We do
+                                              ;; not want to break in
+                                              ;; this case, so explain
+                                              ;; succintly.
+                                              (and original-condition
+                                                   (typep original-condition 'http-condition)
+                                                   (not (typep original-condition 'error)))
                                               (invoke-restart 'failsafe-explain)))))
                                    (http-condition
                                      (lambda (c)
@@ -672,8 +689,8 @@ out with NO-SUCH-ROUTE."
              (check-politely-explain ()
                (unless accepted-type
                  (error 'error-when-explaining
-                        :format-control "No routes to politely explain ~a to client"
-                        :format-arguments (list (type-of condition))
+                        :format-control "No ~a to politely explain ~a to client"
+                        :format-arguments (list 'explain-condition (type-of condition))
                         :original-condition condition))))
       (restart-case 
           (handler-bind ((condition
