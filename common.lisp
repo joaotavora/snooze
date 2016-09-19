@@ -946,15 +946,19 @@ EXPLAIN-CONDITION.")
                  (read-for-resource resource str)))))
            (probe-keyword (str)
              (let* ((probe (probe str)))
+               ;; Though perhaps that keyword is accepted, we may
+               ;; still refuse to intern it in the :KEYWORD pacakge
+               ;; before trying to use it as a keyword argument, if it
+               ;; looks like the symbol didn't "exist" yet.
+               ;;
+               ;; In other words, we simply require that the symbol
+               ;; has a package: it's up to READ-FOR-RESOURCE (the
+               ;; default doesn't intern new symbols) to decide if it
+               ;; spits out symbols in those conditions.
+               ;;
                (if (and (symbolp probe)
-                        (symbol-package probe)
-                        (eq (symbol-package probe)
-                            (resource-package resource)))
+                        (symbol-package probe))
                    (intern (symbol-name probe) :keyword)
-                   ;; Though perhaps that keyword is accepted, we
-                   ;; refuse to intern it if the symbol with the same
-                   ;; name doesn't exist in the resource's package.
-                   ;;
                    (error 'invalid-resource-arguments
                           :format-control "Unknown keyword for resource ~a"
                           :format-arguments (list (resource-name resource)))))))
