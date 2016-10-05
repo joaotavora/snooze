@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/capitaomorte/snooze.svg?branch=master)](https://travis-ci.org/capitaomorte/snooze)
+[![Build Status](https://travis-ci.org/joaotavora/snooze.svg?branch=master)](https://travis-ci.org/joaotavora/snooze)
 Snooze
 =======
 
@@ -484,7 +484,7 @@ To ask questions, report bugs, or just discuss matters open an
 [asdf]: http://common-lisp.net/project/asdf/
 [hunchentoot]: https://github.com/edicl/hunchentoot
 [sharp-lisp]: irc://irc.freenode.net/#lisp
-[issues]: https://github.com/capitaomorte/snooze/issues
+[issues]: https://github.com/joaotavora/snooze/issues
 [caveman]: https://github.com/fukamachi/caveman#routing
 [clack]: https://github.com/fukamachi/clack
 [cl-rest-server]: https://github.com/mmontone/cl-rest-server
