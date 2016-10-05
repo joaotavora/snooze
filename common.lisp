@@ -6,11 +6,12 @@
 ;;; "Sending" and "Receiving" are always from the server's
 ;;; perspective. Hence GET is "sending to client" and POST and PUT are
 ;;; "receiving from client".
-;;; 
-(defpackage :snooze-verbs (:use) (:export #:http-verb #:get #:post #:put #:delete
-                                          #:content-verb
-                                          #:receiving-verb
-                                          #:sending-verb))
+;;;
+(defpackage :snooze-verbs (:use)
+            (:export #:http-verb #:get #:post #:put #:delete
+                     #:content-verb
+                     #:receiving-verb
+                     #:sending-verb))
 
 (cl:defclass snooze-verbs:http-verb      () ())
 (cl:defclass snooze-verbs:delete         (snooze-verbs:http-verb) ())
@@ -53,14 +54,16 @@
 
 (defmacro define-content (type-designator
                           &optional (supertype-designator
-                                     (first (scan-to-strings* "([^/]+)" type-designator))))
+                                     (first (scan-to-strings*
+                                             "([^/]+)" type-designator))))
   (let* ((type (intern-safe type-designator :snooze-types))
          (supertype (intern-safe supertype-designator :snooze-types)))
     `(progn
        (setf (get ',type 'name) ,(string-downcase (symbol-name type)))
        (unless (find-class ',supertype nil)
-         (setf (get ',supertype 'name) ,(format nil "~a/*"
-                                               (string-downcase (symbol-name supertype))))
+         (setf (get ',supertype 'name)
+               ,(format nil "~a/*"
+                        (string-downcase (symbol-name supertype))))
          (defclass ,supertype (snooze-types:content) ()))
        (defclass ,type (,supertype) ())
        (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -69,7 +72,9 @@
 (defmacro define-known-content-types ()
   `(progn
      ,@(loop for (type-spec . nil) in *mime-type-list*
-             for matches = (nth-value 1 (cl-ppcre:scan-to-strings "(.*/.*)(?:;.*)?" type-spec))
+             for matches
+               = (nth-value
+                  1 (cl-ppcre:scan-to-strings "(.*/.*)(?:;.*)?" type-spec))
              for type = (and matches (aref matches 0))
              when type
                collect `(define-content ,type))))
@@ -157,7 +162,8 @@
           (t
            (error "No such resource to delete!")))))
 
-(defmethod initialize-instance :after ((gf resource-generic-function) &rest args)
+(defmethod initialize-instance :after
+    ((gf resource-generic-function) &rest args)
   (declare (ignore args))
   (setf (gethash (resource-name gf) *all-resources*)
         gf))
@@ -190,7 +196,8 @@
                         (string-upcase designator)))))
     (cond ((and verb-spec
                 (listp verb-spec))
-           (list (first verb-spec) (verb-designator-to-verb (second verb-spec))))
+           (list (first verb-spec)
+                 (verb-designator-to-verb (second verb-spec))))
           ((or (keywordp verb-spec)
                (stringp verb-spec))
            (list 'snooze-verbs:http-verb (verb-designator-to-verb verb-spec)))
@@ -208,7 +215,8 @@
                    (error "Sorry, don't know the content-type ~a" type-spec)))))
     (cond ((and type-spec
                 (listp type-spec))
-           (list (first type-spec) (type-designator-to-type (second type-spec))))
+           (list (first type-spec)
+                 (type-designator-to-type (second type-spec))))
           ((or (keywordp type-spec)
                (stringp type-spec))
            (list 'snooze-types:type (type-designator-to-type type-spec)))
@@ -257,7 +265,7 @@ remaining URI after these discoveries."
         uri-content-types)
     (when *uri-content-types-function*
       (multiple-value-setq (uri-content-types uri-stripped-of-content-type-info)
-        (funcall *uri-content-types-function* 
+        (funcall *uri-content-types-function*
                                   (quri:render-uri uri nil))))
     (let* ((uri (ensure-uri (or uri-stripped-of-content-type-info
                                 uri))))
@@ -277,9 +285,13 @@ remaining URI after these discoveries."
 (defun content-classes-in-accept-string (string)
   (labels ((expand (class)
              (cons class
-                   (reduce #'append (mapcar #'expand (closer-mop:class-direct-subclasses class))))))
+                   (reduce
+                    #'append
+                    (mapcar #'expand
+                            (closer-mop:class-direct-subclasses class))))))
     (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
-          for media-range = (first (scan-to-strings* "([^;]*)" media-range-and-params))
+          for media-range
+            = (first (scan-to-strings* "([^;]*)" media-range-and-params))
           for class = (find-content-class media-range)
           when class
             append (expand class))))
@@ -292,7 +304,8 @@ remaining URI after these discoveries."
   (let ((class (or (probe-class-sym
                     (intern (string-upcase designator)
                             :snooze-verbs))
-                   (error "Can't find HTTP verb for designator ~a!" designator))))
+                   (error "Can't find HTTP verb for designator ~a!"
+                          designator))))
     ;; FIXME: perhaps use singletons here
     (make-instance class)))
 
@@ -322,8 +335,8 @@ remaining URI after these discoveries."
         (error 'incompatible-lambda-list
                :actual-args args
                :lambda-list lambda-list
-               :format-control
-               "Too many, too few, or unsupported query arguments for REST resource ~a"
+               :format-control "Too many, too few, or unsupported ~
+                                query arguments for REST resource ~a"
                :format-arguments
                (list (resource-name resource))
                :original-condition e)))))
@@ -334,8 +347,10 @@ remaining URI after these discoveries."
   (unless (every #'null (rest nil-tail))
     (if warn-p
         (warn 'style-warning :format-control
-              "The NIL defaults to a genpath-function's &OPTIONALs must be at the end")
-        (error "The NILs to a genpath-function's &OPTIONALs must be at the end")))))
+              "The NIL defaults to a genpath-function's &OPTIONALs ~
+               must be at the end")
+        (error "The NILs to a genpath-function's &OPTIONALs ~
+                must be at the end")))))
 
 (defun make-genpath-form (genpath-fn-name resource-sym lambda-list)
   (multiple-value-bind (required optional rest kwargs aok-p aux key-p)
@@ -363,7 +378,8 @@ remaining URI after these discoveries."
            ;;
            (optional-args-form
              `(list ,@(loop for (name default supplied-p) in augmented-optional
-                            collect `(if ,supplied-p ,name (or ,name ,default)))))
+                            collect `(if ,supplied-p ,name
+                                         (or ,name ,default)))))
            ;;
            ;;
            (keyword-arguments-form
@@ -372,7 +388,9 @@ remaining URI after these discoveries."
                           ,@(loop for (kw-and-sym default supplied-p)
                                     in augmented-kwargs
                                   for (nil sym) = kw-and-sym
-                                  collect `(cons (intern (symbol-name ',sym) (find-package :KEYWORD))
+                                  collect `(cons (intern
+                                                  (symbol-name ',sym)
+                                                  (find-package :KEYWORD))
                                                  (if ,supplied-p
                                                      ,sym
                                                      (or ,sym
@@ -383,13 +401,14 @@ remaining URI after these discoveries."
       (check-optional-args (mapcar #'second optional) 'warn-p)
       `(defun ,genpath-fn-name
            ,@`(;; Nasty, this could easily be a function.
-               ;; 
+               ;;
                (,@required
                 &optional
                   ,@augmented-optional
                   ,@(if rest
                         (warn 'style-warning
-                              :format-control "&REST ~a is not supported for genpath-functions"
+                              :format-control
+                              "&REST ~a is not supported for genpath-functions"
                               :format-arguments (list rest)))
                 &key
                   ,@all-kwargs
@@ -406,7 +425,7 @@ remaining URI after these discoveries."
 
 (defun defroute-1 (name args)
   (let* (;; find the qualifiers and lambda list
-         ;; 
+         ;;
          (first-parse
            (multiple-value-list
             (parse-defroute-args args)))
@@ -414,16 +433,17 @@ remaining URI after these discoveries."
          (lambda-list (second first-parse))
          (body (third first-parse))
          ;; now parse body
-         ;; 
+         ;;
          (parsed-body (multiple-value-list (alexandria:parse-body body)))
          (remaining (first parsed-body))
          (declarations (second parsed-body))
          (docstring (third parsed-body))
          ;; Add syntactic sugar for the first two specializers in the
          ;; lambda list
-         ;; 
+         ;;
          (verb-spec (verb-spec-or-lose (first lambda-list)))
-         (type-spec (content-type-spec-or-lose (second lambda-list) (second verb-spec)))
+         (type-spec (content-type-spec-or-lose (second lambda-list)
+                                               (second verb-spec)))
          (proper-lambda-list
            `(,verb-spec ,type-spec ,@(nthcdr 2 lambda-list)))
          (simplified-lambda-list
@@ -441,7 +461,9 @@ remaining URI after these discoveries."
   (make-genpath-form function resource
                      (nthcdr 2 (closer-mop:generic-function-lambda-list
                                 (let ((probe (find-resource resource)))
-                                  (assert probe nil "Cannot find the resource ~a" resource)
+                                  (assert probe nil
+                                          "Cannot find the resource ~a"
+                                          resource)
                                   probe)))))
 
 (defun defresource-1 (name lambda-list options)
@@ -456,9 +478,10 @@ remaining URI after these discoveries."
                  for verb-spec = (and routep
                                       (verb-spec-or-lose (first spec-list)))
                  for type-spec = (and routep
-                                      (content-type-spec-or-lose (second spec-list)
-                                                                 (second verb-spec)))
-                 
+                                      (content-type-spec-or-lose
+                                       (second spec-list)
+                                       (second verb-spec)))
+
                  if routep
                    collect `(:method
                               ,@qualifiers
@@ -505,7 +528,8 @@ remaining URI after these discoveries."
                      (reason-for status-code)))))))
 
 (define-condition http-condition (simple-condition)
-  ((status-code :initarg :status-code :initform (error "Must supply a HTTP status code.")
+  ((status-code :initarg :status-code
+                :initform (error "Must supply a HTTP status code.")
                 :reader status-code))
   (:default-initargs :format-control "HTTP condition"))
 
@@ -529,20 +553,31 @@ remaining URI after these discoveries."
                        :initform (error "Must supply an original condition")
                        :accessor original-condition)))
 
-(define-condition unconvertible-argument (invalid-resource-arguments resignalled-condition)
-  ((unconvertible-argument-value :initarg :unconvertible-argument-value :accessor unconvertible-argument-value)
-   (unconvertible-argument-key :initarg :unconvertible-argument-key :accessor unconvertible-argument-key))
+(define-condition unconvertible-argument
+    (invalid-resource-arguments resignalled-condition)
+  ((unconvertible-argument-value :initarg :unconvertible-argument-value
+                                 :accessor unconvertible-argument-value)
+   (unconvertible-argument-key :initarg :unconvertible-argument-key
+                               :accessor unconvertible-argument-key))
   (:default-initargs
    :format-control "An argument in the URI cannot be read"))
 
-(define-condition incompatible-lambda-list (invalid-resource-arguments resignalled-condition)
-  ((lambda-list :initarg :lambda-list :initform (error "Must supply :LAMBDA-LIST") :accessor lambda-list)
-   (actual-args :initarg :actual-args :initform (error "Must supply :ACTUAL-ARGS") :accessor actual-args))
+(define-condition incompatible-lambda-list
+    (invalid-resource-arguments resignalled-condition)
+  ((lambda-list :initarg :lambda-list
+                :initform (error "Must supply :LAMBDA-LIST")
+                :accessor lambda-list)
+   (actual-args :initarg :actual-args
+                :initform (error "Must supply :ACTUAL-ARGS")
+                :accessor actual-args))
   (:default-initargs
    :format-control "An argument in the URI cannot be read"))
 
-(define-condition invalid-uri-structure (invalid-resource-arguments resignalled-condition)
-  ((invalid-uri :initarg :invalid-uri :initform (error "Must supply the invalid URI") :accessor invalid-uri))
+(define-condition invalid-uri-structure
+    (invalid-resource-arguments resignalled-condition)
+  ((invalid-uri :initarg :invalid-uri
+                :initform (error "Must supply the invalid URI")
+                :accessor invalid-uri))
   (:default-initargs
    :format-control "The URI structure cannot be converted into arguments"))
 
@@ -592,7 +627,7 @@ remaining URI after these discoveries."
 
 
 ;;; More internal stuff
-;;; 
+;;;
 
 (defmethod initialize-instance :after ((e http-error) &key)
   (assert (<= 500 (status-code e) 599) nil
@@ -630,45 +665,42 @@ out with NO-SUCH-ROUTE."
                                                    *resource*
                                                    verbose-p)
                        (content-class-name 'text/plain)))))
-      (restart-case (handler-bind ((resignalled-condition
-                                     (lambda (e)
-                                       (setq original-condition (original-condition e)
-                                             code
-                                             (when (typep original-condition 'http-condition)
-                                               (status-code original-condition)))))
-                                   (error
-                                     (lambda (e)
-                                       (setq code (or code 500)
-                                             condition e)
-                                       (cond ((eq *catch-errors* :verbose)
-                                              (invoke-restart 'explain-verbosely))
-                                             (*catch-errors*
-                                              (invoke-restart 'failsafe-explain))
-                                             (;; HACK! notice that a
-                                              ;; non-error
-                                              ;; `http-condition'
-                                              ;; (like a simple
-                                              ;; redirect) with
-                                              ;; `*catch-errors*' =
-                                              ;; NIL and
-                                              ;; `*catch-http-conditions*'
-                                              ;; = T will land us in
-                                              ;; this branch. We do
-                                              ;; not want to break in
-                                              ;; this case, so explain
-                                              ;; succintly.
-                                              (and original-condition
-                                                   (typep original-condition 'http-condition)
-                                                   (not (typep original-condition 'error)))
-                                              (invoke-restart 'failsafe-explain)))))
-                                   (http-condition
-                                     (lambda (c)
-                                       (setq code (status-code c) condition c)
-                                       (cond ((eq *catch-http-conditions* :verbose)
-                                              (invoke-restart 'explain-verbosely))))))
-                      (funcall fn))
+      (restart-case
+          (handler-bind
+              ((resignalled-condition
+                 (lambda (e)
+                   (setq original-condition (original-condition e)
+                         code
+                         (when (typep original-condition 'http-condition)
+                           (status-code original-condition)))))
+               (error
+                 (lambda (e)
+                   (setq code (or code 500)
+                         condition e)
+                   (cond ((eq *catch-errors* :verbose)
+                          (invoke-restart 'explain-verbosely))
+                         (*catch-errors*
+                          (invoke-restart 'failsafe-explain))
+                         (;; HACK! notice that a non-error
+                          ;; `http-condition' (like a simple redirect)
+                          ;; with `*catch-errors*' = NIL and
+                          ;; `*catch-http-conditions*' = T will land
+                          ;; us in this branch. We do not want to
+                          ;; break in this case, so explain succintly.
+                          (and original-condition
+                               (typep original-condition 'http-condition)
+                               (not (typep original-condition 'error)))
+                          (invoke-restart 'failsafe-explain)))))
+               (http-condition
+                 (lambda (c)
+                   (setq code (status-code c) condition c)
+                   (cond ((eq *catch-http-conditions* :verbose)
+                          (invoke-restart 'explain-verbosely))))))
+            (funcall fn))
         (explain-verbosely () :report
-          (lambda (s) (format s "Explain ~a condition with full backtrace" code))
+          (lambda (s)
+            (format s
+             "Explain ~a condition with full backtrace" code))
           (explain t))
         (failsafe-explain () :report
           (lambda (s) (format s "Explain ~a condition very succintly" code))
@@ -690,18 +722,21 @@ out with NO-SUCH-ROUTE."
                (unless accepted-type
                  (error 'error-when-explaining
                         :format-control "No ~a to politely explain ~a to client"
-                        :format-arguments (list 'explain-condition (type-of condition))
+                        :format-arguments
+                        (list 'explain-condition (type-of condition))
                         :original-condition condition))))
-      (restart-case 
+      (restart-case
           (handler-bind ((condition
                            (lambda (c)
-                             (setq condition c
-                                   accepted-type (accepted-type-for condition))))
+                             (setq
+                              condition c
+                              accepted-type (accepted-type-for condition))))
                          (http-condition
                            (lambda (c)
                              (setq code (status-code c))
                              (when (and *catch-http-conditions*
-                                        (not (eq *catch-http-conditions* :verbose)))
+                                        (not (eq *catch-http-conditions*
+                                                 :verbose)))
                                (check-politely-explain)
                                (invoke-restart 'politely-explain))))
                          (error
@@ -784,24 +819,28 @@ EXPLAIN-CONDITION.")
             ;;
             (multiple-value-bind (converted-plain-args converted-keyword-args)
                 (handler-bind
-                    ((error (lambda (e)
-                              (when *catch-errors*
-                                (error 'invalid-uri-structure
-                                       :format-control "Caught ~a in URI-TO-ARGUMENTS"
-                                       :format-arguments (list (type-of e))
-                                       :original-condition e
-                                       :invalid-uri relative-uri)))))
+                    ((error
+                       (lambda (e)
+                         (when *catch-errors*
+                           (error 'invalid-uri-structure
+                                  :format-control
+                                  "Caught ~a in URI-TO-ARGUMENTS"
+                                  :format-arguments (list (type-of e))
+                                  :original-condition e
+                                  :invalid-uri relative-uri)))))
                   (uri-to-arguments *resource* relative-uri))
-              (let ((converted-arguments (append converted-plain-args
-                                                 (loop for (a . b) in converted-keyword-args
-                                                       collect a collect b))))
+              (let ((converted-arguments
+                      (append converted-plain-args
+                              (loop for (a . b) in converted-keyword-args
+                                    collect a collect b))))
                 ;; Double check that the arguments indeed
                 ;; fit the resource's lambda list
                 ;;
                 (check-arglist-compatible *resource* converted-arguments)
                 (let* ((content-types-to-try
                          (typecase verb
-                           (snooze-verbs:sending-verb client-accepted-content-types)
+                           (snooze-verbs:sending-verb
+                            client-accepted-content-types)
                            (snooze-verbs:receiving-verb
                             (list (or (and uri-content-classes
                                            (first uri-content-classes))
@@ -821,8 +860,10 @@ EXPLAIN-CONDITION.")
                                      )))
                     (cond (payload-ct
                            (when (and (destructive-p verb)
-                                      (not (typep payload-ct (class-of matching-ct))))
-                             (warn "Route declared ~a as a its payload content-type, but it matched ~a"
+                                      (not (typep payload-ct
+                                                  (class-of matching-ct))))
+                             (warn "Route declared ~a as its payload ~
+                                    content-type, but it matched ~a"
                                    payload-ct matching-ct)))
                           (t
                            (setq payload-ct
@@ -831,7 +872,8 @@ EXPLAIN-CONDITION.")
                                      matching-ct))))
                     (throw 'response (values code
                                              payload
-                                             (content-class-name payload-ct)))))))))))))
+                                             (content-class-name
+                                              payload-ct)))))))))))))
 
 ;;; Default values for options
 ;;;
@@ -854,7 +896,8 @@ EXPLAIN-CONDITION.")
       (cl-ppcre:scan-to-strings "([^\\.]+)\\.(\\w+)(.*)" uri-path)
     (let ((content-type-class (and matchp
                                    (find-content-class
-                                    (gethash (aref groups 1) *mime-type-hash*)))))
+                                    (gethash (aref groups 1)
+                                             *mime-type-hash*)))))
       (when content-type-class
         (values
          (list content-type-class)
@@ -890,17 +933,22 @@ EXPLAIN-CONDITION.")
              (plain-args (and path
                               (plusp (length path))
                               (cl-ppcre:split "/" (subseq path 1))))
-             (keyword-args (append
-                            (and query
-                                 (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
-                                       for (undecoded-key-name undecoded-value-string) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
-                                       when (and undecoded-key-name undecoded-value-string)
-                                         collect (cons (intern (string-upcase
-                                                               (quri:url-decode undecoded-key-name))
-                                                               :keyword)
-                                                       (quri:url-decode undecoded-value-string))))
-                            (when fragment
-                              `((snooze:fragment . ,fragment))))))
+             (keyword-args
+               (append
+                (and query
+                     (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
+                           for (undecoded-key-name undecoded-value-string)
+                             = (scan-to-strings* "(.*)=(.*)" maybe-pair)
+                           when (and undecoded-key-name undecoded-value-string)
+                             collect (cons (intern
+                                            (string-upcase
+                                             (quri:url-decode
+                                              undecoded-key-name))
+                                            :keyword)
+                                           (quri:url-decode
+                                            undecoded-value-string))))
+                (when fragment
+                  `((snooze:fragment . ,fragment))))))
         (values
          (mapcar #'probe (mapcar #'quri:url-decode plain-args))
          (loop for (key . value) in keyword-args
@@ -919,7 +967,8 @@ EXPLAIN-CONDITION.")
          (query-part (and keyword-args
                           (format nil "?~{~a=~a~^&~}"
                                   (loop for (k . v) in keyword-args
-                                        collect (encode k t) collect (encode v))))))
+                                        collect (encode k t)
+                                        collect (encode v))))))
     (let ((string (format nil "/~a~a~a"
                           (string-downcase (resource-name resource))
                           (or plain-part "")
@@ -939,8 +988,10 @@ EXPLAIN-CONDITION.")
                                   :unconvertible-argument-value str
                                   :unconvertible-argument-key key
                                   :original-condition e
-                                  :format-control "Malformed arg for resource ~a"
-                                  :format-arguments (list (resource-name resource)))))))
+                                  :format-control
+                                  "Malformed arg for resource ~a"
+                                  :format-arguments
+                                  (list (resource-name resource)))))))
              (progn
                (let ((*read-eval* nil))
                  (read-for-resource resource str)))))
@@ -970,22 +1021,29 @@ EXPLAIN-CONDITION.")
              (plain-args (and path
                               (plusp (length path))
                               (cl-ppcre:split "/" (subseq path 1))))
-             (keyword-args (append
-                            (and query
-                                 (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
-                                       for (undecoded-key-name undecoded-value-string) = (scan-to-strings* "(.*)=(.*)" maybe-pair)
-                                       when (and undecoded-key-name undecoded-value-string)
-                                         collect (cons (quri:url-decode undecoded-key-name)
-                                                       (quri:url-decode undecoded-value-string)))))))
+             (keyword-args
+               (append
+                (and
+                 query
+                 (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
+                       for (undecoded-key-name undecoded-value-string)
+                         = (scan-to-strings* "(.*)=(.*)" maybe-pair)
+                       when (and undecoded-key-name undecoded-value-string)
+                         collect
+                         (cons (quri:url-decode undecoded-key-name)
+                               (quri:url-decode undecoded-value-string)))))))
         (values
          (mapcar #'probe (mapcar #'quri:url-decode plain-args))
          (loop for (key-str . value-str) in keyword-args
                collect (cons (probe-keyword key-str)
                              (probe value-str key-str))
                  into keyword-alist
-               finally (return (append keyword-alist
-                                       (if fragment
-                                           `((snooze:fragment . ,(probe fragment))))))))))))
+               finally
+                  (return
+                    (append
+                     keyword-alist
+                     (if fragment
+                         `((snooze:fragment . ,(probe fragment))))))))))))
 
 (defmethod arguments-to-uri (resource plain-args keyword-args)
   (flet ((encode (thing &optional keyword)
@@ -1000,7 +1058,8 @@ EXPLAIN-CONDITION.")
          (query-part (and keyword-args
                           (format nil "?~{~a=~a~^&~}"
                                   (loop for (k . v) in keyword-args
-                                        collect (encode k t) collect (encode v))))))
+                                        collect (encode k t)
+                                        collect (encode v))))))
     (let ((string (format nil "/~a~a~a"
                           (string-downcase (resource-name resource))
                           (or plain-part "")
