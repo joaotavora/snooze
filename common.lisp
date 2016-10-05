@@ -290,15 +290,17 @@ remaining URI after these discoveries."
                     (mapcar #'expand
                             (closer-mop:class-direct-subclasses class))))))
     (loop for media-range-and-params in (cl-ppcre:split "\\s*,\\s*" string)
-          for media-range
-            = (first (scan-to-strings* "([^;]*)" media-range-and-params))
-          for class = (find-content-class media-range)
+          for class = (parse-content-type-header media-range-and-params)
           when class
             append (expand class))))
 
 (defun parse-content-type-header (string)
-  "Return a symbol designating a SNOOZE-SEND-TYPE object."
-  (find-content-class string))
+  "Return a class associated with the content-type described by STRING.
+As a second value, return what RFC2388:PARSE-HEADER"
+  (let* ((parsed (rfc2388:parse-header string :value))
+        (designator (second parsed)))
+    (values (find-content-class designator)
+            parsed)))
 
 (defun find-verb-or-lose (designator)
   (let ((class (or (probe-class-sym

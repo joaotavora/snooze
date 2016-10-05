@@ -1,5 +1,6 @@
 (asdf:defsystem :snooze
-  :depends-on (#:alexandria #:cl-ppcre #:closer-mop #:quri #:uiop #:parse-float)
+  :depends-on (#:alexandria #:cl-ppcre #:closer-mop #:quri #:uiop #:parse-float
+                            #:rfc2388)
   :author "João Távora <https://github.com/capitaomorte>"
   :version #.(with-open-file (f "VERSION") (string (read f)))
   :license "LLGPL"
