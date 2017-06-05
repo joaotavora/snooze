@@ -354,6 +354,24 @@ As a second value, return what RFC2388:PARSE-HEADER"
         (error "The NILs to a genpath-function's &OPTIONALs ~
                 must be at the end")))))
 
+(defun genpath-fn-lambda-list (all-kwargs
+                               augmented-optional
+                               required
+                               rest
+                               aok-p)
+  "Helper for MAKE-GENPATH-FORM"
+  `(,@required
+     &optional
+     ,@augmented-optional
+     ,@(if rest
+           (warn 'style-warning
+                 :format-control
+                 "&REST ~a is not supported for genpath-functions"
+                 :format-arguments (list rest)))
+     &key
+     ,@all-kwargs
+     ,@(if aok-p `(&allow-other-keys))))
+
 (defun make-genpath-form (genpath-fn-name resource-sym lambda-list)
   (multiple-value-bind (required optional rest kwargs aok-p aux key-p)
       (alexandria:parse-ordinary-lambda-list lambda-list)
@@ -401,29 +419,24 @@ As a second value, return what RFC2388:PARSE-HEADER"
       ;; Optional args are checked at macroexpansion time
       ;;
       (check-optional-args (mapcar #'second optional) 'warn-p)
-      `(defun ,genpath-fn-name
-           ,@`(;; Nasty, this could easily be a function.
-               ;;
-               (,@required
-                &optional
-                  ,@augmented-optional
-                  ,@(if rest
-                        (warn 'style-warning
-                              :format-control
-                              "&REST ~a is not supported for genpath-functions"
-                              :format-arguments (list rest)))
-                &key
-                  ,@all-kwargs
-                  ,@(if aok-p `(&allow-other-keys)))
-               ;; And at runtime...
-               ;;
-               (check-optional-args ,optional-args-form)
-               (arguments-to-uri
-                (find-resource ',resource-sym)
-                (append
-                 ,required-args-form
-                 (remove nil ,optional-args-form))
-                ,keyword-arguments-form))))))
+      `(progn
+         (defun ,genpath-fn-name
+             ,(genpath-fn-lambda-list
+               all-kwargs
+               augmented-optional
+               required
+               rest
+               aok-p)
+           ;; And at runtime...
+           ;;
+           (check-optional-args ,optional-args-form)
+           (arguments-to-uri
+            (find-resource ',resource-sym)
+            (append
+             ,required-args-form
+             (remove nil ,optional-args-form))
+            ,keyword-arguments-form)
+           )))))
 
 (defun defroute-1 (name args)
   (let* (;; find the qualifiers and lambda list
