@@ -16,7 +16,7 @@
            (values retval nread)))))
 
 (defun read-string (stream &optional (terminator #\") )
-  (unless (eq (read-char stream) terminator)
+  (unless (eql (read-char stream) terminator)
     (error 'snooze-reader-error
            :format-control "~a cannot read string that doesn't start with ~a"
            :format-arguments (list 'parse-string terminator)))
@@ -27,9 +27,9 @@
            (loop for c = (read-char stream) do
              (incf nread)
              (cond
-               ((eq c terminator)
+               ((eql c terminator)
                 (return))
-               ((eq c #\\)
+               ((eql c #\\)
                 (write-char (read-char stream)))
                (t
                 (write-char c)))))
@@ -42,7 +42,7 @@
 (defun read-name (stream)
   (let* ((eof-sym (gensym))
          (c (peek-char nil stream nil eof-sym)))
-    (cond ((eq c #\|)
+    (cond ((eql c #\|)
            (read-string stream #\|))
           ((eq c eof-sym)
            (values nil 0))
@@ -55,7 +55,7 @@
                    with eof-sym = (gensym)
                    for c = (read-char stream nil eof-sym) do
                      (incf nread)
-                     (cond ((eq c #\:)
+                     (cond ((eql c #\:)
                             (decf nread)
                             (unread-char c stream)
                             (return))
@@ -74,7 +74,7 @@
                (setq ncolons
                      (handler-case
                          (loop for c =  (read-char stream)
-                               while (eq c #\:)
+                               while (eql c #\:)
                                count 1
                                finally (unread-char c stream))
                        (end-of-file (e)
@@ -131,7 +131,7 @@ No macro-characters exist, not even #\(. So, where STRING would
 normally represent a list to READ-FROM-STRING, it is taken as a
 peculiar symbol name, that, at any rate, either exists in *PACKAGE* or
 is never interned anywhere"
-  (cond ((eq (aref string 0) #\")
+  (cond ((eql (aref string 0) #\")
          (with-input-from-string (stream string)
            (multiple-value-bind (obj nread)
                (read-string stream #\")
