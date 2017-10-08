@@ -15,8 +15,8 @@ route and plain old Common Lisp. For example, in _Snooze_, routes
 are just functions and HTTP conditions are just Lisp conditions.
 
 Since you stay inside Lisp, if you know how to make a function,
-you know how to make a route. *There is no extra route-defining 
-syntax to learn*.
+you know how to make a route. *There are no regular expressions to
+write or extra route-defining syntax to learn*.
 
 _Snooze_ is web-server-backend-agnostic: it can
 [work with any web server](#other-backends).
