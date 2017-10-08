@@ -2,18 +2,24 @@
 Snooze
 =======
 
-_Snooze_ is an URL router for Common Lisp designed around REST web
-services. 
+_Snooze_ is an URL router for Common Lisp designed around [REST web
+services][rest].
 
-The idea is that you stay inside Lisp all the time, even while writing
-with HTTP in mind. No need to learn macros with extra route-defining
-syntax. In _Snooze_, routes are just functions and HTTP conditions are
-just Lisp conditions.
+An URL router lets you open URL routes to your application that are
+friendlier, easier to remember and better supported by other
+applications, such as search engines. 
 
-_Snooze_ is web-server-backend-agnostic: it's really just an URL
-router and can [work with any web server](#other-backends).
+_Snooze_ establishes a correspondence between RESTful routes (that
+[look like this][restful-routes]) and Common Lisp concepts.
 
-Here an example that you can try out quickly: a micro-REST service to
+The result is that you stay inside Lisp all the time. In _Snooze_,
+routes are just functions and HTTP conditions are just Lisp
+conditions.  *There is no extra route-defining syntax to learn*.
+
+_Snooze_ is web-server-backend-agnostic: being just a router it can
+[work with any web server](#other-backends).
+
+Here's an example you can try out quickly: a micro-REST service to
 read and write Lisp docstrings over HTTP:
 
 ```lisp
@@ -36,11 +42,9 @@ read and write Lisp docstrings over HTTP:
 (clack:clackup (snooze:make-clack-app) :port 9003)
 ```
 
-This establishes two routes (`GET` and `POST`) on the URI
-`localhost:9003/lispdoc/<symbol>`. You also get a lot of error
-reporting "for free", meaning that if the HTTP client strays off these
-routes, the correct HTTP condition is signalled, as can be seen from
-these examples:
+This establishes two routes (`GET` for reading and `POST` for writing)
+on the URI `localhost:9003/lispdoc/<symbol>`. Here's an illustration
+of how they respond:
 
 
 ```HTTP
@@ -58,14 +62,17 @@ POST /lispdoc/defun                        => 415 Unsupported Media Type
 Content-type: application/json
 ```
 
-The rest of this README is a [rationale](#rationale) and a
-[tutorial](#tutorial) building upon the simple application presented
-above.
+The error codes 400, 406 and 415 are error reporting that you get "for
+free": if the HTTP client strays off these routes, be it for improper
+syntax or unsupported content types, the correct HTTP condition is
+signalled.
 
-If you're just intrigued about how and why URI paths become
-symbols arguments to your routes, [jump ahead](#how-snooze-converts-uri-components-to-arguments)
+The rest of this README contains the [rationale](#rationale) for
+building _Snooze_ and a [tutorial](#tutorial) that builds on the
+simple application presented above.
 
-Ah, snooze is kinda **BETA** and the usual disclaimer of warranty applies.
+Ah, _Snooze_ is kinda *BETA*. The usual disclaimer of warranty
+applies.
 
 Rationale
 ---------
@@ -75,8 +82,9 @@ There are many Common Lisp systems that provide HTTP routing like
 and [ningle][ningle]. Unfortunately, they tend to make you learn some
 extra route-defining syntax. 
 
-On the contrary _Snooze_ maps [REST/HTTP](https://en.wikipedia.org/wiki/REST) concepts
-to Common Lisp concepts:
+On the contrary _Snooze_ maps
+[REST/HTTP](https://en.wikipedia.org/wiki/REST) concepts to Common
+Lisp concepts:
 
 | HTTP/REST concept                    | Snooze CL concept                   |
 | :----------------------------------- | ----------------------------------: |
@@ -580,3 +588,5 @@ To ask questions, report bugs, or just discuss matters open an
 [restas]: http://restas.lisper.ru/en/manual/routes.html#routes
 [ningle]: http://8arrow.org/ningle/)
 [cl-who]: http://weitz.de/cl-who/#escape-string-all)
+[rest]: https://en.wikipedia.org/wiki/Representational_state_transfer
+[restful-routes]: https://en.wikipedia.org/wiki/Representational_state_transfer#Relationship%20between%20URL%20and%HTTP%20methods
