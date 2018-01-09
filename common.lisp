@@ -521,8 +521,6 @@ As a second value, return what RFC2388:PARSE-HEADER"
 
 ;;; Some external stuff but hidden away from the main file
 ;;;
-(defvar *print-conditions-verbosely* nil)
-
 (defmethod explain-condition-failsafe (condition resource &optional verbose-p)
   (declare (ignore resource))
   (let* ((original-condition (and (typep condition 'resignalled-condition)
@@ -533,10 +531,12 @@ As a second value, return what RFC2388:PARSE-HEADER"
                           500)))
     (with-output-to-string (s)
       (cond (verbose-p
-             (let ((*print-conditions-verbosely* t))
-               (format s "~a" condition))
-             (format s "~&~%Here's a backtrace that bit me ~%~%")
-             (uiop/image:print-condition-backtrace condition :stream s))
+             (format s "~a" condition)
+             (format s "~&~%Here's a little bit more information ~%~%")
+             (explain-failsafe condition s)
+             (format s "~&~%Here's the full backtrace that bit me ~%~%")
+             (uiop/image:print-condition-backtrace condition :stream s)
+             )
             (t
              (format s "~a ~a"
                      status-code
@@ -566,7 +566,10 @@ As a second value, return what RFC2388:PARSE-HEADER"
 (define-condition resignalled-condition ()
   ((original-condition :initarg :original-condition
                        :initform (error "Must supply an original condition")
-                       :accessor original-condition)))
+                       :accessor original-condition)
+   ;; (original-condition-backtrace :initform (trivial-backtrace:backtrace-string)
+   ;;                               :accessor original-condition-backtrace)
+   ))
 
 (define-condition unconvertible-argument
     (invalid-resource-arguments resignalled-condition)
@@ -610,35 +613,43 @@ As a second value, return what RFC2388:PARSE-HEADER"
    :format-control "An error occurred when trying to explain a condition"))
 
 (defmethod print-object ((c http-condition) s)
-  (format s "~a: ~?" (status-code c)
-          (simple-condition-format-control c)
-          (simple-condition-format-arguments c)))
+  (print-unreadable-object (c s :type t)
+    (format s "~a: ~?" (status-code c)
+            (simple-condition-format-control c)
+            (simple-condition-format-arguments c))))
 
-(defmethod print-object :after ((c resignalled-condition) s)
-  (when *print-conditions-verbosely*
-    (format s "~&~%Here's a backtrace of the original condition ~%~%")
-    (uiop/image:print-condition-backtrace (original-condition c) :stream s)))
+(defmethod print-object ((c resignalled-condition) s)
+  (print-unreadable-object (c s :type t)
+    (princ (original-condition c) s)))
 
-(defmethod print-object ((c error-when-explaining) s)
+(defmethod explain-failsafe ((c condition) s)
+  (format s "~&Not a lot of information on this, sorry~%"))
+
+(defmethod explain-failsafe ((c error-when-explaining) s)
   (format s "~&SNOOZE:EXPLAIN-CONDITION was trying to explain:~%~%  ~a"
                             (original-condition c))
   (format s "~%~%when it was bitten by:~%~%  ~?"
           (simple-condition-format-control c)
           (simple-condition-format-arguments c)))
 
-(defmethod print-object ((c invalid-uri-structure) s)
+(defmethod explain-failsafe ((c invalid-uri-structure) s)
   (format s "~&SNOOZE:URI-TO-ARGUMENTS was trying to decode:~%~%  ~a"
                             (invalid-uri c))
   (format s "~%~%when it was bitten by:~%~%  ~a"
           (original-condition c)))
 
-(defmethod print-object ((c incompatible-lambda-list) s)
+(defmethod explain-failsafe ((c incompatible-lambda-list) s)
   (format s "~&~?" (simple-condition-format-control c)
           (simple-condition-format-arguments c))
   (format s "~&Trying to fit~%  ~a~%to the lambda list~%  ~a"
           (actual-args c) (lambda-list c))
   (format s "~%~%when it was bitten by:~%~%  ~a"
           (original-condition c)))
+
+;; (defmethod explain-failsafe :after ((c resignalled-condition) s)
+;;   (format s "~&Here's the backtrace of the original condition ~a~%~a"
+;;           (original-condition c)
+;;           (original-condition-backtrace c)))
 
 
 ;;; More internal stuff
