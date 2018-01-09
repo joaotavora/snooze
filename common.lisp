@@ -532,7 +532,7 @@ As a second value, return what RFC2388:PARSE-HEADER"
     (with-output-to-string (s)
       (cond (verbose-p
              (format s "~a" condition)
-             (format s "~&~%Here's a little bit more information ~%~%")
+             (format s "~&~%Here's a little bit more information: ~%")
              (explain-failsafe condition s)
              (format s "~&~%Here's the full backtrace that bit me ~%~%")
              (uiop/image:print-condition-backtrace condition :stream s)
@@ -566,10 +566,11 @@ As a second value, return what RFC2388:PARSE-HEADER"
 (define-condition resignalled-condition ()
   ((original-condition :initarg :original-condition
                        :initform (error "Must supply an original condition")
-                       :accessor original-condition)
-   ;; (original-condition-backtrace :initform (trivial-backtrace:backtrace-string)
-   ;;                               :accessor original-condition-backtrace)
-   ))
+                       :reader original-condition)
+   (original-condition-backtrace :initform (and (eq :verbose *catch-errors*)
+                                                (with-output-to-string (s)
+                                                  (uiop/image:print-backtrace :stream s)))
+                                 :reader original-condition-backtrace)))
 
 (define-condition unconvertible-argument
     (invalid-resource-arguments resignalled-condition)
@@ -623,33 +624,39 @@ As a second value, return what RFC2388:PARSE-HEADER"
     (princ (original-condition c) s)))
 
 (defmethod explain-failsafe ((c condition) s)
-  (format s "~&Not a lot of information on this, sorry~%"))
+  (format s "~&~%No more interesting information on ~a, sorry~%" c))
 
 (defmethod explain-failsafe ((c error-when-explaining) s)
-  (format s "~&SNOOZE:EXPLAIN-CONDITION was trying to explain:~%~%  ~a"
-                            (original-condition c))
-  (format s "~%~%when it was bitten by:~%~%  ~?"
-          (simple-condition-format-control c)
-          (simple-condition-format-arguments c)))
+  (format s "~&SNOOZE:EXPLAIN-CONDITION was trying to explain to the user the condition ~a."
+          (original-condition c)))
+
+(defmethod explain-failsafe ((c unconvertible-argument) s)
+  (format s "~&SNOOZE:URI-TO-ARGUMENTS was trying to make sense of the ~
+key-value-pair \"~a\" and \"~a\" when it caught ~a"
+          (unconvertible-argument-key c)
+          (unconvertible-argument-value c)
+          (original-condition c)))
 
 (defmethod explain-failsafe ((c invalid-uri-structure) s)
-  (format s "~&SNOOZE:URI-TO-ARGUMENTS was trying to decode:~%~%  ~a"
-                            (invalid-uri c))
-  (format s "~%~%when it was bitten by:~%~%  ~a"
-          (original-condition c)))
+  (format s "~&SNOOZE:URI-TO-ARGUMENTS was trying to decode the URI~
+:~%~%  ~a"
+                            (invalid-uri c)))
 
 (defmethod explain-failsafe ((c incompatible-lambda-list) s)
-  (format s "~&~?" (simple-condition-format-control c)
-          (simple-condition-format-arguments c))
   (format s "~&Trying to fit~%  ~a~%to the lambda list~%  ~a"
-          (actual-args c) (lambda-list c))
-  (format s "~%~%when it was bitten by:~%~%  ~a"
-          (original-condition c)))
+          (actual-args c) (lambda-list c)))
 
-;; (defmethod explain-failsafe :after ((c resignalled-condition) s)
-;;   (format s "~&Here's the backtrace of the original condition ~a~%~a"
-;;           (original-condition c)
-;;           (original-condition-backtrace c)))
+(defmethod explain-failsafe :before ((c resignalled-condition) s)
+  (format s "~&~%You got a ~a because:~% " c))
+
+(defmethod explain-failsafe :after ((c resignalled-condition) s)
+  (explain-failsafe (original-condition c) s)
+  (if (original-condition-backtrace c)
+      (format s "~&~%Here's the backtrace at the time of the ~a:~%~%~a"
+              (original-condition c)
+              (original-condition-backtrace c))
+      (format s "~&~%I don't have a backtrace for the ~a:~%~%"
+              (original-condition c))))
 
 
 ;;; More internal stuff

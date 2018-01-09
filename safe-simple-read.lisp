@@ -2,6 +2,12 @@
 
 (define-condition snooze-reader-error (simple-error reader-error) ())
 
+(defmethod print-object ((c snooze-reader-error) s)
+  (print-unreadable-object (c s :type t)
+    (format s "~?"
+            (simple-condition-format-control c)
+            (simple-condition-format-arguments c))))
+
 (defun parse-integer-then-float (string)
   (let (retval nread)
     (multiple-value-setq (retval nread)
@@ -131,33 +137,37 @@ No macro-characters exist, not even #\(. So, where STRING would
 normally represent a list to READ-FROM-STRING, it is taken as a
 peculiar symbol name, that, at any rate, either exists in *PACKAGE* or
 is never interned anywhere"
-  (cond ((eql (aref string 0) #\")
-         (with-input-from-string (stream string)
-           (multiple-value-bind (obj nread)
-               (read-string stream #\")
-             (unless (= nread (length string))
-               (error 'snooze-reader-error
-                      :format-control "~a sees junk reading string inside string ~s"
-                      :format-arguments (list 'safe-read-simple-token-from-string string)))
-             (values obj nread))))
-        (t
-         (multiple-value-bind (number nread)
-             (parse-integer-then-float string)
-           (cond (number
-                  (values number nread))
-                 (t
-                  (multiple-value-bind (symbol status symbol-name package)
-                      (parse-symbol string)
-                    (if status
-                        (values symbol (length string))
-                        (if make-symbol-p
-                            (values (make-symbol symbol-name)
-                                    (length string))
-                            (error 'snooze-reader-error
-                                   :format-control "~a refusing to intern a new symbol ~s in ~a"
-                                   :format-arguments `(safe-simple-read-from-string
-                                                       ,string
-                                                       ,package)))))))))))
+  (cond
+    ((zerop (length string))
+     (error 'snooze-reader-error
+            :format-control "Can't read from an empty string"))
+    ((eql (aref string 0) #\")
+     (with-input-from-string (stream string)
+       (multiple-value-bind (obj nread)
+           (read-string stream #\")
+         (unless (= nread (length string))
+           (error 'snooze-reader-error
+                  :format-control "~a sees junk reading string inside string ~s"
+                  :format-arguments (list 'safe-read-simple-token-from-string string)))
+         (values obj nread))))
+    (t
+     (multiple-value-bind (number nread)
+         (parse-integer-then-float string)
+       (cond (number
+              (values number nread))
+             (t
+              (multiple-value-bind (symbol status symbol-name package)
+                  (parse-symbol string)
+                (if status
+                    (values symbol (length string))
+                    (if make-symbol-p
+                        (values (make-symbol symbol-name)
+                                (length string))
+                        (error 'snooze-reader-error
+                               :format-control "~a refusing to intern a new symbol ~s in ~a"
+                               :format-arguments `(safe-simple-read-from-string
+                                                   ,string
+                                                   ,package)))))))))))
 
 
 
