@@ -22,7 +22,8 @@
 (cl:defclass snooze-verbs:put            (snooze-verbs:receiving-verb) ())
 (cl:defclass snooze-verbs:get            (snooze-verbs:sending-verb) ())
 
-(defun destructive-p (verb) (typep verb 'snooze-verbs:receiving-verb))
+(defun destructive-p (verb) (or (typep verb 'snooze-verbs:receiving-verb)
+                                (typep verb 'snooze-verbs:delete)))
 
 
 ;;; Content-types
@@ -870,20 +871,24 @@ EXPLAIN-CONDITION.")
                 ;; fit the resource's lambda list
                 ;;
                 (check-arglist-compatible *resource* converted-arguments)
-                (let* ((content-types-to-try
+                (let* ((matching-ct
                          (typecase verb
-                           (snooze-verbs:sending-verb
-                            client-accepted-content-types)
-                           (snooze-verbs:receiving-verb
-                            (list (or (and uri-content-classes
-                                           (first uri-content-classes))
-                                      (parse-content-type-header content-type)
-                                      (error 'unsupported-content-type))))))
-                       (matching-ct
-                         (matching-content-type-or-lose *resource*
-                                                        verb
-                                                        converted-arguments
-                                                        content-types-to-try)))
+                           ;; HTTP DELETE doesn't care about
+                           ;; content-types
+                           (snooze-verbs:delete nil)
+                           (t
+                            (matching-content-type-or-lose
+                             *resource*
+                             verb
+                             converted-arguments
+                             (typecase verb
+                               (snooze-verbs:sending-verb
+                                client-accepted-content-types)
+                               (snooze-verbs:receiving-verb
+                                (list (or (and uri-content-classes
+                                               (first uri-content-classes))
+                                          (parse-content-type-header content-type)
+                                          (error 'unsupported-content-type))))))))))
                   (multiple-value-bind (payload code payload-ct)
                       (apply *resource* verb matching-ct converted-arguments)
                     (unless code

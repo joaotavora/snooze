@@ -1,10 +1,24 @@
+(cl:defpackage :snooze-tests-demo
+  (:use #:cl #:snooze)
+  (:export #:todo-id
+           #:todo-task
+           #:todo
+           #:*todos*
+           #:*mock-http-payload*))
+
 (fiasco:define-test-package :snooze-tests
   (:use #:cl #:snooze)
   (:import-from  #:snooze-common
                  #:verb-spec-or-lose
                  #:find-content-class
                  #:content-type-spec-or-lose-1
-                 #:parse-resource))
+                 #:parse-resource)
+  (:import-from #:snooze-tests-demo
+                #:todo-id
+                #:todo-task
+                #:todo
+                #:*todos*
+                #:*mock-http-payload*))
 (in-package :snooze-tests)
 
 (deftest parse-verbs ()
@@ -128,15 +142,14 @@
 
 ;;; Some tests from the README.md
 ;;;
-(defvar *mock-http-payload* "fornix")
-
-(cl:defpackage :snooze-tests-demo (:use :cl :snooze))
 (in-package :snooze-tests-demo)
+
+(defvar *mock-http-payload* "fornix")
 
 (defparameter *todo-counter* 0)
 
 (defclass todo ()
-  ((id :initform (incf *todo-counter*) :accessor todo-id)
+  ((id :initform (incf *todo-counter*) :initarg :id :accessor todo-id)
    (task :initarg :task :accessor todo-task)
    (done :initarg :done :accessor todo-done)))
 
@@ -165,7 +178,7 @@
   (let ((todo (find id *todos* :key #'todo-id)))
     (if todo
         (setf (todo-task todo)
-              snooze-tests::*mock-http-payload*)
+              *mock-http-payload*)
         (http-condition 404 "No such TODO!"))))
 
 (defmethod todo ((snooze-verbs:http-verb snooze-verbs:put)
@@ -174,7 +187,7 @@
          (declare (ignore maybe))
          (let ((todo (find id *todos* :key #'todo-id)))
            (if todo
-               (setf (todo-task todo) snooze-tests::*mock-http-payload*)
+               (setf (todo-task todo) *mock-http-payload*)
              (http-condition 404 "No such TODO!"))))
 
 (snooze:defresource todos (method content))
@@ -193,7 +206,9 @@
 
 (defmacro with-request ((uri &rest morekeys &key &allow-other-keys) args &body body)
   (let ((result-sym (gensym)))
-    `(let* ((,result-sym
+    `(let* ((snooze:*catch-errors* nil)
+            (snooze:*catch-http-conditions* t)
+            (,result-sym
               (multiple-value-list
                (snooze:handle-request
                 ,uri
@@ -255,6 +270,30 @@
   (with-request ("/todo/1.css") (code payload)
     (is (= 200 code))
     (is (search "CSS for TODO item 1" payload))))
+
+(snooze:defroute todo (:delete ignored-type id &key &allow-other-keys)
+  (let ((todo (find id *todos* :key #'todo-id)))
+    (cond (todo
+           (setf *todos* (delete todo *todos*))
+           (todo-task todo))
+          (t
+           (http-condition 404 "No such TODO!")))))
+
+(deftest test-delete-route ()
+  (let ((*todos*
+          (list (make-instance 'todo
+                               :id 1 :done t :task "Wash")
+                (make-instance 'todo
+                               :id 3 :done t :task "Clean"))))
+    (with-request ("/todo/3"
+                   :method :delete
+                   :content-type "text/irrelevant") (code)
+      (is (= 200 code))
+      (is (null (find 3 *todos* :key #'todo-id))))
+    (with-request ("/todo/3"
+                   :method :delete
+                   :content-type "text/irrelevant") (code)
+      (is (= 404 code)))))
 
 
 ;;; Genpath section
