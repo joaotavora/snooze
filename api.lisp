@@ -140,7 +140,7 @@ server.")
 
 (defgeneric uri-to-arguments (resource relative-uri)
   (:documentation
-   "Extract arguments for resource from RELATIVE-URI.
+   "Extract arguments for RESOURCE from RELATIVE-URI.
 
 RELATIVE-URI is a string, where everything but the part designating
 RESOURCE has been kept untouched (and potentially URI-encoded)
@@ -149,42 +149,71 @@ Should return two values: a list of \"plain\" arguments and an
 alist (*not* a plist) used as keyword arguments.
 
 It's reasonable for user-written specializaions of this method to
-error out with 400 (malformed) or 404 not found status codes. At any
-rate.
+error out with 400 (malformed) or 404 not found status codes.
 
-This method is the inverse of ARGUMENTS-TO-URI
+This method is the inverse of ARGUMENTS-TO-URI")
+  (:method ((resource resource-generic-function) relative-uri)
+    "Default method of URI-TO-ARGUMENTS.
 
-The default method turns the path section of RELATIVE-URI into
-\"plain\" args and the query and fragment sections of URI into keyword
+Converts the path section of RELATIVE-URI into \"plain\" arguments and
+the query and fragment sections of URI into keyword
 arguments. READ-FROM-STRING is used to convert every individual
 argument's value. If an argument is unconvertible, an HTTP 400
-condition of type UNCONVERTIBLE-ARGUMENT is signalled."))
+condition of type UNCONVERTIBLE-ARGUMENT is signalled."
+    (uri-to-arguments-1 resource relative-uri)))
 
 (defgeneric arguments-to-uri (resource plain-args keyword-args)
   (:documentation
-   "Generate an URI path string to fir RESOURCE.
+   "Generate an URI path string to fit RESOURCE.
+
 PLAIN-ARGS and KEYWORD-ARGS are like the return values of
 URI-TO-ARGUMENTS.
 
 Should return a propertly escaped URI path that will display in the
 address bar and/or be sent on future requests.
 
-This method is the inverse of URI-TO-ARGUMENTS.
+This method is the inverse of URI-TO-ARGUMENTS.")
+  (:method ((resource resource-generic-function) plain-args keyword-args)
+    "Default method of ARGUMENTS-TO-URI.
 
-The default method tries to WRITE-TO-STRING (with *PRINT-CASE* set
-to :DOWNCASE) every object, except for keywords, which are written
-without the leading \":\" character. Afterwards the whole URI is
-escaped for invalid sequences."))
+Tries to WRITE-TO-STRING (with *PRINT-CASE* set to :DOWNCASE) every
+object, except for keywords, which are written without the leading
+\":\" character. Afterwards the whole URI is escaped for invalid
+sequences."
+    (arguments-to-uri-1 resource plain-args keyword-args)))
 
 (defgeneric read-for-resource (resource string)
   (:documentation
    "Like READ-FROM-STRING, but for RESOURCE.
-Reads the object represented in STRING into a CL representation,
-considering RESOURCE.
 
-The default implementation calls a safer version of READ-FROM-STRING,
-SAFE-SIMPLE-READ-FROM-STRING, with the current package set to the
-package of the RESOURCE's symbol"))
+Reads the object represented in STRING into a CL representation,
+considering RESOURCE.")
+  (:method ((resource resource-generic-function) string)
+    "Defaut method for READ-FOR-RESOURCE.
+
+Vaguely resembles READ-FROM-STRING, but will only read in numbers,
+symbols or strings. Unqualified symbols are read in the package where
+RESOURCE belongs, otherwise they must be package-qualified.  If a
+symbol, package, qualified or not, does not exist, it is *not*
+created.  Instead, an uninterned symbol of the intended name is
+returned instead.
+
+This means that:
+
+    (loop for outgoing in '(cl:defun
+                            :just-interned-this
+                            and-this
+                            #:uninterned)
+          for readback = (read-for-resource res
+                            (write-for-resource res outgoing))
+          collect
+          (list (eq outgoing readback)
+                (string= (string outgoing)
+                         (string readback))))
+
+
+Returns ((T T) (T T) (T T) (NIL T))."
+    (read-for-resource-1 resource string)))
 
 (defgeneric write-for-resource (resource obj)
   (:documentation
@@ -192,9 +221,15 @@ package of the RESOURCE's symbol"))
 
 Returns a string representing the object OBJ, considering RESOURCE.
 
-The default implementation calls WRITE-TO-STRING with the current
-package set to the package of the RESOURCE's symbol"))
-  
+The default implementation ")
+  (:method ((resource resource-generic-function) string)
+    "Defaut method for WRITE-FOR-RESOURCE.
+
+Calls WRITE-TO-STRING on OBJECT with the current package set to the
+package of the RESOURCE's symbol, except in the case that OBJECT is an
+uninterned symbol, whereupon PRINC-TO-STRING is used on its downcased
+name instead."
+    (write-for-resource-1 resource string)))
 
 (defun handle-request (uri &key
                              (method :get)
@@ -203,7 +238,7 @@ package set to the package of the RESOURCE's symbol"))
   "Dispatches an HTTP request for URI to the appropriate resource.
 
 METHOD a keyword, string or symbol designating the HTTP method (or
-\"verb\"). ACCEPT is a string in the format of the \"Accept:\"
+\"verb\").  ACCEPT is a string in the format of the \"Accept:\"
 header. IN-CONTENT-TYPE is a string in the format of the
 \"Content-Type\" header in the request.
 
@@ -213,23 +248,27 @@ be used by the application to craft a response to the request."
 
 (defvar *backend*)
 (setf (documentation '*backend* 'variable)
-      "Bound to a keyword identifying the handling server backend.")
+      "Bound to a keyword identifying the server backend handling a request.
+Examples of values to find here are :HUNCHENTOOT or :CLACK.")
 
 (defgeneric backend-payload (backend type)
-  (:documentation 
+  (:documentation
    "Ask BACKEND to return the current HTTP request's payload as TYPE.
-Type is an instance of SNOOZE-TYPES:CONTENT.
-"))
+
+BACKEND is a value suitable for *BACKEND* (which see).
+
+Type is an instance of SNOOZE-TYPES:CONTENT."))
 
 (defun payload-as-string (&optional (backend *backend*))
   "Return the current HTTP request's payload as a string.
+
 BACKEND defaults to *BACKEND*"
   (backend-payload backend (make-instance 'snooze-types:text)))
 
 
 
 ;;; Clack integration
-;;; 
+;;;
 (defvar *clack-request-env*)
 
 (setf (documentation '*clack-request-env* 'variable)
@@ -310,12 +349,3 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
   (let ((probe (funcall (read-from-string "hunchentoot:raw-post-data"))))
     (assert (stringp probe) nil "Asked for a string, but request carries a ~a" (type-of probe))
     probe))
-
-
-
-
-
-
-
-
-

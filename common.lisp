@@ -92,8 +92,8 @@
          designator)
         ((eq designator t)
          (alexandria:simple-style-warning
-                     "Coercing content-designating type designator T to ~s"
-                     'snooze-types:content)
+          "Coercing content-designating type designator T to ~s"
+          'snooze-types:content)
          (find-class 'snooze-types:content))
         ((or (symbolp designator)
              (stringp designator))
@@ -189,7 +189,7 @@
                       (progn
                         (alexandria:simple-style-warning
                          "Coercing verb-designating type T in ~a to ~s"
-                              verb-spec 'snooze-verbs:http-verb)
+                         verb-spec 'snooze-verbs:http-verb)
                         'snooze-verbs:http-verb))
                  (probe-class-sym (intern (string-upcase designator)
                                           :snooze-verbs))
@@ -267,7 +267,7 @@ remaining URI after these discoveries."
     (when *uri-content-types-function*
       (multiple-value-setq (uri-content-types uri-stripped-of-content-type-info)
         (funcall *uri-content-types-function*
-                                  (quri:render-uri uri nil))))
+                 (quri:render-uri uri nil))))
     (let* ((uri (ensure-uri (or uri-stripped-of-content-type-info
                                 uri))))
       (multiple-value-bind (resource-name relative-uri)
@@ -299,7 +299,7 @@ remaining URI after these discoveries."
   "Return a class associated with the content-type described by STRING.
 As a second value, return what RFC2388:PARSE-HEADER"
   (let* ((parsed (rfc2388:parse-header string :value))
-        (designator (second parsed)))
+         (designator (second parsed)))
     (values (find-content-class designator)
             parsed)))
 
@@ -347,12 +347,12 @@ As a second value, return what RFC2388:PARSE-HEADER"
 (defun check-optional-args (opt-values &optional warn-p)
   (let ((nil-tail
           (member nil opt-values)))
-  (unless (every #'null (rest nil-tail))
-    (if warn-p
-        (warn 'style-warning :format-control
-              "The NIL defaults to a genpath-function's &OPTIONALs ~
+    (unless (every #'null (rest nil-tail))
+      (if warn-p
+          (warn 'style-warning :format-control
+                "The NIL defaults to a genpath-function's &OPTIONALs ~
                must be at the end")
-        (error "The NILs to a genpath-function's &OPTIONALs ~
+          (error "The NILs to a genpath-function's &OPTIONALs ~
                 must be at the end")))))
 
 (defun genpath-fn-lambda-list (all-kwargs
@@ -362,16 +362,16 @@ As a second value, return what RFC2388:PARSE-HEADER"
                                aok-p)
   "Helper for MAKE-GENPATH-FORM"
   `(,@required
-     &optional
-     ,@augmented-optional
-     ,@(if rest
-           (warn 'style-warning
-                 :format-control
-                 "&REST ~a is not supported for genpath-functions"
-                 :format-arguments (list rest)))
-     &key
-     ,@all-kwargs
-     ,@(if aok-p `(&allow-other-keys))))
+    &optional
+    ,@augmented-optional
+    ,@(if rest
+          (warn 'style-warning
+                :format-control
+                "&REST ~a is not supported for genpath-functions"
+                :format-arguments (list rest)))
+    &key
+    ,@all-kwargs
+    ,@(if aok-p `(&allow-other-keys))))
 
 (defun make-genpath-form (genpath-fn-name resource-sym lambda-list)
   (multiple-value-bind (required optional rest kwargs aok-p aux key-p)
@@ -640,8 +640,7 @@ key-value-pair \"~a\" and \"~a\" when it caught ~a"
 
 (defmethod explain-failsafe ((c invalid-uri-structure) s)
   (format s "~&SNOOZE:URI-TO-ARGUMENTS was trying to decode the URI~
-:~%~%  ~a"
-                            (invalid-uri c)))
+:~%~%  ~a" (invalid-uri c)))
 
 (defmethod explain-failsafe ((c incompatible-lambda-list) s)
   (format s "~&Trying to fit~%  ~a~%to the lambda list~%  ~a"
@@ -685,7 +684,7 @@ out with NO-SUCH-ROUTE."
                               (if (destructive-p verb)
                                   415 ; unsupported media type
                                   406 ; not acceptable
-                              )
+                                  )
                               ;; FIXME, make "unimplemented" more pervasive
                               501 ; unimplemented
                               ))))
@@ -733,8 +732,7 @@ out with NO-SUCH-ROUTE."
             (funcall fn))
         (explain-verbosely () :report
           (lambda (s)
-            (format s
-             "Explain ~a condition with full backtrace" code))
+            (format s "Explain ~a condition with full backtrace" code))
           (explain t))
         (failsafe-explain () :report
           (lambda (s) (format s "Explain ~a condition very succintly" code))
@@ -949,7 +947,7 @@ EXPLAIN-CONDITION.")
 
 ;;; Reading and writing URI's
 ;;;
-(defmethod uri-to-arguments (resource relative-uri)
+(defun uri-to-arguments-1 (resource relative-uri)
   "Default method of URI-TO-ARGUMENTS, which see."
   (flet ((probe (str &optional key)
            (handler-case
@@ -992,7 +990,8 @@ EXPLAIN-CONDITION.")
          (loop for (key . value) in keyword-args
                collect (cons key (probe value key))))))))
 
-(defmethod arguments-to-uri (resource plain-args keyword-args)
+(defun arguments-to-uri-1 (resource plain-args keyword-args)
+  "Do actual work for default method of ARGUMENTS-TO-URI."
   (flet ((encode (thing &optional keyword)
            (quri:url-encode
             (cond (keyword
@@ -1000,39 +999,39 @@ EXPLAIN-CONDITION.")
                   (t
                    (write-for-resource resource thing)
                    )))))
-  (let* ((plain-part (format nil "/~{~a~^/~}"
-                                (mapcar #'encode plain-args)))
-         (query-part (and keyword-args
-                          (format nil "?~{~a=~a~^&~}"
-                                  (loop for (k . v) in keyword-args
-                                        collect (encode k t)
-                                        collect (encode v))))))
-    (let ((string (format nil "/~a~a~a"
-                          (string-downcase (resource-name resource))
-                          (or plain-part "")
-                          (or query-part ""))))
-      string))))
+    (let* ((plain-part (format nil "/~{~a~^/~}"
+                               (mapcar #'encode plain-args)))
+           (query-part (and keyword-args
+                            (format nil "?~{~a=~a~^&~}"
+                                    (loop for (k . v) in keyword-args
+                                          collect (encode k t)
+                                          collect (encode v))))))
+      (let ((string (format nil "/~a~a~a"
+                            (string-downcase (resource-name resource))
+                            (or plain-part "")
+                            (or query-part ""))))
+        string))))
 
 (defun resource-package (resource)
   (symbol-package (resource-name resource)))
 
-(defmethod uri-to-arguments (resource relative-uri)
-  "Default method of URI-TO-ARGUMENTS, which see."
+(defun uri-to-arguments-1 (resource relative-uri)
+  "Do actual work for default method of URI-TO-ARGUMENTS."
   (labels ((probe (str &optional key)
-           (handler-bind
-               ((error (lambda (e)
-                         (when *catch-errors*
-                           (error 'unconvertible-argument
-                                  :unconvertible-argument-value str
-                                  :unconvertible-argument-key key
-                                  :original-condition e
-                                  :format-control
-                                  "Malformed arg for resource ~a"
-                                  :format-arguments
-                                  (list (resource-name resource)))))))
-             (progn
-               (let ((*read-eval* nil))
-                 (read-for-resource resource str)))))
+             (handler-bind
+                 ((error (lambda (e)
+                           (when *catch-errors*
+                             (error 'unconvertible-argument
+                                    :unconvertible-argument-value str
+                                    :unconvertible-argument-key key
+                                    :original-condition e
+                                    :format-control
+                                    "Malformed arg for resource ~a"
+                                    :format-arguments
+                                    (list (resource-name resource)))))))
+               (progn
+                 (let ((*read-eval* nil))
+                   (read-for-resource resource str)))))
            (probe-keyword (str)
              (let* ((probe (probe str)))
                ;; Though perhaps that keyword is accepted, we may
@@ -1083,7 +1082,8 @@ EXPLAIN-CONDITION.")
                      (if fragment
                          `((snooze:fragment . ,(probe fragment))))))))))))
 
-(defmethod arguments-to-uri (resource plain-args keyword-args)
+(defun arguments-to-uri-1 (resource plain-args keyword-args)
+  "Do actual work for default method of ARGUMENTS-TO-URI."
   (flet ((encode (thing &optional keyword)
            (quri:url-encode
             (cond (keyword
@@ -1091,55 +1091,26 @@ EXPLAIN-CONDITION.")
                   (t
                    (write-for-resource resource thing)
                    )))))
-  (let* ((plain-part (format nil "/~{~a~^/~}"
-                                (mapcar #'encode plain-args)))
-         (query-part (and keyword-args
-                          (format nil "?~{~a=~a~^&~}"
-                                  (loop for (k . v) in keyword-args
-                                        collect (encode k t)
-                                        collect (encode v))))))
-    (let ((string (format nil "/~a~a~a"
-                          (string-downcase (resource-name resource))
-                          (or plain-part "")
-                          (or query-part ""))))
-      string))))
+    (let* ((plain-part (format nil "/~{~a~^/~}"
+                               (mapcar #'encode plain-args)))
+           (query-part (and keyword-args
+                            (format nil "?~{~a=~a~^&~}"
+                                    (loop for (k . v) in keyword-args
+                                          collect (encode k t)
+                                          collect (encode v))))))
+      (let ((string (format nil "/~a~a~a"
+                            (string-downcase (resource-name resource))
+                            (or plain-part "")
+                            (or query-part ""))))
+        string))))
 
-(defmethod read-for-resource (resource string)
-  "Read STRING as an OBJECT to pass to resource.
-
-This is the default method. It resembles READ-FROM-STRING, but will
-only read in numbers, symbols or strings. Unqualified symbols are read
-in the package where RESOURCE belongs, otherwise they must be
-package-qualified. If a symbol, package, qualified or not, does not
-exist, it is *not* created. Instead, an uninterned symbol of the
-intended name is returned instead.
-
-This means that:
-
-    (loop for outgoing in '(cl:defun
-                            :just-interned-this
-                            and-this
-                            #:uninterned)
-          for readback = (read-for-resource res
-                            (write-for-resource res outgoing))
-          collect
-          (list (eq outgoing readback)
-                (string= (string outgoing)
-                         (string readback))))
-
-
-Returns ((T T) (T T) (T T) (NIL T))."
+(defun read-for-resource-1 (resource string)
+  "Do actual work for default method of READ-FOR-RESOURCE."
   (let ((*package* (resource-package resource)))
     (snooze-safe-simple-read:safe-simple-read-from-string string t)))
 
-(defmethod write-for-resource (resource object)
-  "Transform OBJECT into a string to encode in an URI.
-
-This is the default method that always uses WRITE-TO-STRING, except in
-the special case that OBJECT is an uninterned symbol, where
-PRINC-TO-STRING is used on its downcased name.
-
-See also READ-FOR-RESOURCE"
+(defun write-for-resource-1 (resource object)
+  "Do actual work for default-method of WRITE-FOR-RESOURCE."
   (let ((*package* (symbol-package (resource-name resource)))
         (*print-case* :downcase))
     (if (and (symbolp object)
