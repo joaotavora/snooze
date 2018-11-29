@@ -1035,7 +1035,7 @@ EXPLAIN-CONDITION.")
                                           collect (encode v))))))
       (let ((string (format nil "/~a~a~a"
                             (string-downcase (resource-name resource))
-                            (or plain-part "")
+                            plain-part
                             (or query-part ""))))
         string))))
 
