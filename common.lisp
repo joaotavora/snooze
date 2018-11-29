@@ -947,71 +947,6 @@ EXPLAIN-CONDITION.")
 
 ;;; Reading and writing URI's
 ;;;
-(defun uri-to-arguments-1 (resource relative-uri)
-  "Default method of URI-TO-ARGUMENTS, which see."
-  (flet ((probe (str &optional key)
-           (handler-case
-               (progn
-                 (let ((*read-eval* nil))
-                   (read-for-resource resource str)))
-             (error (e)
-               (error 'unconvertible-argument
-                      :unconvertible-argument-value str
-                      :unconvertible-argument-key key
-                      :original-condition e
-                      :format-control "Malformed arg for resource ~a"
-                      :format-arguments (list (resource-name *resource*)))))))
-    (when relative-uri
-      (let* ((relative-uri (ensure-uri relative-uri))
-             (path (quri:uri-path relative-uri))
-             (query (quri:uri-query relative-uri))
-             (fragment (quri:uri-fragment relative-uri))
-             (plain-args (and path
-                              (plusp (length path))
-                              (cl-ppcre:split "/" (subseq path 1))))
-             (keyword-args
-               (append
-                (and query
-                     (loop for maybe-pair in (cl-ppcre:split "[;&]" query)
-                           for (undecoded-key-name undecoded-value-string)
-                             = (scan-to-strings* "(.*)=(.*)" maybe-pair)
-                           when (and undecoded-key-name undecoded-value-string)
-                             collect (cons (intern
-                                            (string-upcase
-                                             (quri:url-decode
-                                              undecoded-key-name))
-                                            :keyword)
-                                           (quri:url-decode
-                                            undecoded-value-string))))
-                (when fragment
-                  `((snooze:fragment . ,fragment))))))
-        (values
-         (mapcar #'probe (mapcar #'quri:url-decode plain-args))
-         (loop for (key . value) in keyword-args
-               collect (cons key (probe value key))))))))
-
-(defun arguments-to-uri-1 (resource plain-args keyword-args)
-  "Do actual work for default method of ARGUMENTS-TO-URI."
-  (flet ((encode (thing &optional keyword)
-           (quri:url-encode
-            (cond (keyword
-                   (string-downcase thing))
-                  (t
-                   (write-for-resource resource thing)
-                   )))))
-    (let* ((plain-part (format nil "/~{~a~^/~}"
-                               (mapcar #'encode plain-args)))
-           (query-part (and keyword-args
-                            (format nil "?~{~a=~a~^&~}"
-                                    (loop for (k . v) in keyword-args
-                                          collect (encode k t)
-                                          collect (encode v))))))
-      (let ((string (format nil "/~a~a~a"
-                            (string-downcase (resource-name resource))
-                            (or plain-part "")
-                            (or query-part ""))))
-        string))))
-
 (defun resource-package (resource)
   (symbol-package (resource-name resource)))
 
