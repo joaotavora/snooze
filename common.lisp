@@ -257,8 +257,9 @@ Returns nil if the resource cannot be found, otherwise returns 3
 values: RESOURCE, URI-CONTENT-TYPES and RELATIVE-URI. RESOURCE is a
 generic function verifying RESOURCE-P discovered in URI.
 URI-CONTENT-TYPES is a list of subclasses of SNOOZE-TYPES:CONTENT
-discovered in URI by *URI-CONTENT-TYPES-FUNCTION*. RELATIVE-URI is the
-remaining URI after these discoveries."
+discovered in directly URI by
+*URI-CONTENT-TYPES-FUNCTION*. RELATIVE-URI is the remaining URI after
+these discoveries."
   ;; <scheme name> : <hierarchical part> [ ? <query> ] [ # <fragment> ]
   ;;
   (let ((uri (ensure-uri uri))
@@ -832,14 +833,14 @@ EXPLAIN-CONDITION.")
 (defun handle-request-1 (uri method accept &optional content-type)
   (catch 'response
     (let (*resource*
-          uri-content-classes
+          content-classes-encoded-in-uri
           relative-uri)
       (brutally-explaining-conditions ()
-        (multiple-value-setq (*resource* uri-content-classes relative-uri)
+        (multiple-value-setq (*resource* content-classes-encoded-in-uri relative-uri)
           (parse-resource uri))
         (let* ((verb (find-verb-or-lose method))
                (client-accepted-content-types
-                 (or (append uri-content-classes
+                 (or (append content-classes-encoded-in-uri
                              (content-classes-in-accept-string accept))
                      (list (find-content-class 'snooze-types:text/plain)))))
           (politely-explaining-conditions (client-accepted-content-types)
@@ -883,8 +884,8 @@ EXPLAIN-CONDITION.")
                                (snooze-verbs:sending-verb
                                 client-accepted-content-types)
                                (snooze-verbs:receiving-verb
-                                (list (or (and uri-content-classes
-                                               (first uri-content-classes))
+                                (list (or (and content-classes-encoded-in-uri
+                                               (first content-classes-encoded-in-uri))
                                           (parse-content-type-header content-type)
                                           (error 'unsupported-content-type))))))))))
                   (multiple-value-bind (payload code payload-ct)
@@ -929,7 +930,7 @@ EXPLAIN-CONDITION.")
 (defun search-for-extension-content-type (uri-path)
   "Default value for *URI-CONTENT-TYPES-FUNCTION*, which see."
   (multiple-value-bind (matchp groups)
-      (cl-ppcre:scan-to-strings "([^\\.]+)\\.(\\w+)(.*)" uri-path)
+      (cl-ppcre:scan-to-strings "([^\\.]+)\\.(\\w+)([^/]*)$" uri-path)
     (let ((content-type-class (and matchp
                                    (find-content-class
                                     (gethash (aref groups 1)
