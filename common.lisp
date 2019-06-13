@@ -829,7 +829,7 @@ Used by POLITELY-EXPLAINING-CONDITIONS and
 BRUTALLY-EXPLAINING-CONDITIONS to pass a resource to
 EXPLAIN-CONDITION.")
 
-(defun handle-request-1 (uri method accept content-type)
+(defun handle-request-1 (uri method accept &optional content-type)
   (catch 'response
     (let (*resource*
           uri-content-classes

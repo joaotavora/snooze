@@ -238,9 +238,13 @@ name instead."
   "Dispatches an HTTP request for URI to the appropriate resource.
 
 METHOD a keyword, string or symbol designating the HTTP method (or
-\"verb\").  ACCEPT is a string in the format of the \"Accept:\"
-header. IN-CONTENT-TYPE is a string in the format of the
-\"Content-Type\" header in the request.
+\"verb\").
+
+ACCEPT is a string in the format of the \"Accept:\" header.
+
+IN-CONTENT-TYPE is a string in the format of the \"Content-Type\"
+header in the request, used when METHOD is :POST or :PUT, in which
+case it must be non-nil.
 
 Returns three values CODE, PAYLOAD and OUT-CONTENT-TYPE, which should
 be used by the application to craft a response to the request."
@@ -294,10 +298,13 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
                       (mapcar #'car bindings)
                       (mapcar #'cdr bindings)
                     (multiple-value-bind (status-code payload payload-ct)
-                        (handle-request (getf env :request-uri)
-                                        :method (getf env :request-method)
-                                        :accept (gethash "accept" (getf env :headers))
-                                        :content-type (getf env :content-type))
+                        (apply #'handle-request (getf env :request-uri)
+                               (loop for (k v) on (list
+                                                   :method (getf env :request-method)
+                                                   :accept (gethash "accept" (getf env :headers))
+                                                   :content-type (getf env :content-type))
+                                     by #'cddr
+                                     when v collect k and collect v))
                       `(,status-code
                         (:content-type ,payload-ct)
                         (,payload)))))))
@@ -337,10 +344,14 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
               (mapcar #'car bindings)
               (mapcar #'cdr bindings)
             (multiple-value-bind (status-code payload payload-ct)
-                (handle-request (funcall request-uri-fn request)
-                                :method (funcall request-method-fn request)
-                                :accept (funcall header-in-fn :accept request)
-                                :content-type (funcall header-in-fn :content-type request))
+                (apply #'handle-request
+                       (funcall request-uri-fn request)
+                       (loop for (k v) on (list 
+                                           :method (funcall request-method-fn request)
+                                           :accept (funcall header-in-fn :accept request)
+                                           :content-type (funcall header-in-fn :content-type request))
+                             by #'cddr
+                             when v collect k and collect v))
               (funcall (fdefinition set-return-code-fn) status-code)
               (funcall (fdefinition set-content-type-fn) payload-ct)
               (or payload ""))))))))
