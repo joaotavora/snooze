@@ -346,7 +346,7 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
             (multiple-value-bind (status-code payload payload-ct)
                 (apply #'handle-request
                        (funcall request-uri-fn request)
-                       (loop for (k v) on (list 
+                       (loop for (k v) on (list
                                            :method (funcall request-method-fn request)
                                            :accept (funcall header-in-fn :accept request)
                                            :content-type (funcall header-in-fn :content-type request))
@@ -357,6 +357,6 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
               (or payload ""))))))))
 
 (defmethod backend-payload ((backend (eql :hunchentoot)) (type snooze-types:text))
-  (let ((probe (funcall (read-from-string "hunchentoot:raw-post-data"))))
+  (let ((probe (apply (read-from-string "hunchentoot:raw-post-data") '(:force-text t))))
     (assert (stringp probe) nil "Asked for a string, but request carries a ~a" (type-of probe))
     probe))
