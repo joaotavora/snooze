@@ -555,12 +555,12 @@ As a second value, return what RFC2388:PARSE-HEADER"
    :format-control "HTTP Internal Server Error"
    :status-code 500))
 
-(define-condition no-such-resource (http-condition) ()
+(define-condition no-such-resource (http-error) ()
   (:default-initargs
    :status-code 404
    :format-control "Resource does not exist"))
 
-(define-condition invalid-resource-arguments (http-condition) ()
+(define-condition invalid-resource-arguments (http-error) ()
   (:default-initargs
    :status-code 400
    :format-control "Resource exists but invalid arguments passed"))
@@ -607,7 +607,7 @@ As a second value, return what RFC2388:PARSE-HEADER"
    :status-code 501
    :format-control "Content type is not supported"))
 
-(define-condition no-such-route (http-condition) ()
+(define-condition no-such-route (http-error) ()
   (:default-initargs
    :format-control "Resource exists but no such route"))
 
