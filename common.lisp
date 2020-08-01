@@ -338,7 +338,7 @@ As a second value, return what RFC2388:PARSE-HEADER"
       (error (e)
         (error 'incompatible-lambda-list
                :actual-args args
-               :lambda-list lambda-list
+               :lambda-list (cddr lambda-list)
                :format-control "Too many, too few, or unsupported ~
                                 query arguments for REST resource ~a"
                :format-arguments
@@ -534,7 +534,6 @@ As a second value, return what RFC2388:PARSE-HEADER"
     (with-output-to-string (s)
       (cond (verbose-p
              (format s "~a" condition)
-             (format s "~&~%Here's a little bit more information: ~%")
              (explain-failsafe condition s)
              (format s "~&~%Here's the full backtrace that bit me ~%~%")
              (uiop/image:print-condition-backtrace condition :stream s)
@@ -568,11 +567,7 @@ As a second value, return what RFC2388:PARSE-HEADER"
 (define-condition resignalled-condition ()
   ((original-condition :initarg :original-condition
                        :initform (error "Must supply an original condition")
-                       :reader original-condition)
-   (original-condition-backtrace :initform (and (eq :verbose *catch-errors*)
-                                                (with-output-to-string (s)
-                                                  (uiop/image:print-backtrace :stream s)))
-                                 :reader original-condition-backtrace)))
+                       :reader original-condition)))
 
 (define-condition unconvertible-argument
     (invalid-resource-arguments resignalled-condition)
@@ -626,38 +621,43 @@ As a second value, return what RFC2388:PARSE-HEADER"
     (princ (original-condition c) s)))
 
 (defmethod explain-failsafe ((c condition) s)
-  (format s "~&~%No more interesting information on ~a, sorry~%" c))
+  ;; (format s "~&~%No more interesting information on ~a, sorry~%" c)
+  )
 
 (defmethod explain-failsafe ((c error-when-explaining) s)
-  (format s "~&SNOOZE:EXPLAIN-CONDITION was trying to explain to the user the condition ~a."
+  (format s "~&  SNOOZE:EXPLAIN-CONDITION is missing a method to politely explain:~
+             ~&    ~a~
+             ~&  to the client."
           (original-condition c)))
 
 (defmethod explain-failsafe ((c unconvertible-argument) s)
-  (format s "~&SNOOZE:URI-TO-ARGUMENTS was trying to make sense of the ~
-key-value-pair \"~a\" and \"~a\" when it caught ~a"
+  (format s "~&  SNOOZE:URI-TO-ARGUMENTS caught a ~a when converting:~
+             ~&    ~a=~a~
+             ~&  into Lisp objects to give to your route."
+          (type-of (original-condition c))
           (unconvertible-argument-key c)
-          (unconvertible-argument-value c)
-          (original-condition c)))
+          (unconvertible-argument-value c)))
 
 (defmethod explain-failsafe ((c invalid-uri-structure) s)
-  (format s "~&SNOOZE:URI-TO-ARGUMENTS was trying to decode the URI~
-:~%~%  ~a" (invalid-uri c)))
+  (format s "~&  SNOOZE:URI-TO-ARGUMENTS can't grok this URI:~
+             ~&    ~a" (invalid-uri c)))
 
 (defmethod explain-failsafe ((c incompatible-lambda-list) s)
-  (format s "~&Trying to fit~%  ~a~%to the lambda list~%  ~a"
-          (actual-args c) (lambda-list c)))
+  (format s "~&  Snooze failed to fit:~
+             ~&    ~s~
+             ~&  to the lambda list:~
+             ~&    ~a~
+             ~&  which produced a ~a which your Lisp describes as:~
+             ~&    ~a"
+          (actual-args c) (lambda-list c)
+          (type-of (original-condition c))
+          (original-condition c)))
 
 (defmethod explain-failsafe :before ((c resignalled-condition) s)
-  (format s "~&~%You got a ~a because:~% " c))
+  (format s "~&~%You got a ~a because:~% " (type-of c)))
 
 (defmethod explain-failsafe :after ((c resignalled-condition) s)
-  (explain-failsafe (original-condition c) s)
-  (if (original-condition-backtrace c)
-      (format s "~&~%Here's the backtrace at the time of the ~a:~%~%~a"
-              (original-condition c)
-              (original-condition-backtrace c))
-      (format s "~&~%I don't have a backtrace for the ~a:~%~%"
-              (original-condition c))))
+  (explain-failsafe (original-condition c) s))
 
 
 ;;; More internal stuff
