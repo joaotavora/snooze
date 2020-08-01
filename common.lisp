@@ -535,9 +535,9 @@ As a second value, return what RFC2388:PARSE-HEADER"
       (cond (verbose-p
              (format s "~a" condition)
              (explain-failsafe condition s)
-             (format s "~&~%Here's the full backtrace that bit me ~%~%")
-             (uiop/image:print-condition-backtrace condition :stream s)
-             )
+             (loop for (condition backtrace) in *useful-backtraces*
+                   do (format s "~&~%Here's a backtrace for condition ~s~
+                   ~&~a" condition backtrace)))
             (t
              (format s "~a ~a"
                      status-code
@@ -690,8 +690,24 @@ out with NO-SUCH-ROUTE."
                               501 ; unimplemented
                               ))))
 
+(defvar *useful-backtraces* nil "Useful backtraces.")
+
+(defmacro saving-useful-backtrace (args &body body)
+  (declare (ignore args))
+  `(handler-bind
+       ((t
+          (lambda (e)
+            (when *catch-errors*
+              (pushnew (list e
+                             (with-output-to-string (s)
+                               (uiop/image:print-condition-backtrace
+                                e :stream s)))
+                       *useful-backtraces*
+                       :test (lambda (a b) (eq (first a) (first b))))))))
+     ,@body))
+
 (defun call-brutally-explaining-conditions (fn)
-  (let (code condition original-condition)
+  (let (code condition original-condition *useful-backtraces*)
     (flet ((explain (verbose-p)
              (throw 'response
                (values code
@@ -730,10 +746,10 @@ out with NO-SUCH-ROUTE."
                    (setq code (status-code c) condition c)
                    (cond ((eq *catch-http-conditions* :verbose)
                           (invoke-restart 'explain-verbosely))))))
-            (funcall fn))
+            (saving-useful-backtrace () (funcall fn)))
         (explain-verbosely () :report
           (lambda (s)
-            (format s "Explain ~a condition with full backtrace" code))
+            (format s "Explain ~a condition more verbosely" code))
           (explain t))
         (failsafe-explain () :report
           (lambda (s) (format s "Explain ~a condition very succintly" code))
@@ -780,7 +796,7 @@ out with NO-SUCH-ROUTE."
                                         (not (eq *catch-errors* :verbose)))
                                (check-politely-explain)
                                (invoke-restart 'politely-explain)))))
-            (funcall fn))
+            (saving-useful-backtrace () (funcall fn)))
         (politely-explain ()
           :report (lambda (s)
                     (format s "Politely explain to client in ~a"
