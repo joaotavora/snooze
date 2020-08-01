@@ -14,8 +14,12 @@
       (parse-integer string :junk-allowed t))
     (cond ((/= nread (length string))
            (multiple-value-setq (retval nread)
-             (parse-float:parse-float string :junk-allowed t))
-           (if (/= nread (length string))
+             (ignore-errors
+              ;; github#24: Sometimes SBCL will error here even with
+              ;; :JUNK-ALLOWED.  Swallow it.
+              (parse-float:parse-float string :junk-allowed t)))
+           (if (and retval
+                    (/= nread (length string)))
                (values nil nread)
                (values retval nread)))
           (t
