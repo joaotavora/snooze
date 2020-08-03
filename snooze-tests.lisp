@@ -70,14 +70,14 @@
   ;; even with &ALLOW-OTHER-KEYS, snooze refuses, by default, to
   ;; create keyword symbols that don't have a corresponding symbol in
   ;; the resource's package.
-  ;; 
+  ;;
   (intern "BAR" (snooze::resource-package
                 (snooze::find-resource 'bla)))
   (multiple-value-bind (resource pargs kwargs)
       (parse-uri-for-tests "/bla/ble/bli?foo=fonix;bar=fotrix#coisoetal")
     (declare (ignore pargs kwargs))
     (is (eq resource #'bla)))
-  
+
   (multiple-value-bind (resource pargs kwargs)
       (let ((snooze:*resource-name-function*
               (lambda (uri)
@@ -88,7 +88,7 @@
                         (:BAR            . fotrix)
                         (SNOOZE:FRAGMENT . coisoetal))))
     (is (eq resource #'bla)))
-  
+
   (multiple-value-bind (resource pargs)
       (parse-uri-for-tests "/bla/ble/bli")
     (is (equal pargs '(ble bli)))
@@ -102,7 +102,7 @@
     (is (equal kwargs '((:foo . ok))))
     (is (eq resource #'yo))
     (is (null content-types)))
-  
+
   (multiple-value-bind (resource pargs kwargs content-types)
       (parse-uri-for-tests "/yo.css?foo=ok")
     (is (null pargs))
@@ -153,7 +153,7 @@
    (task :initarg :task :accessor todo-task)
    (done :initarg :done :accessor todo-done)))
 
-(defparameter *todos* 
+(defparameter *todos*
   (list (make-instance 'todo :task "Wash dishes")
         (make-instance 'todo :task "Scrub floor")
         (make-instance 'todo :task "Doze off" :done t)))
@@ -199,7 +199,8 @@
   (format nil "{NOTREALLYJSON~{~a~^~%~}NOTREALLYJSON}"
           (mapcar #'todo-task *todos*)))
 
-(defmethod snooze:explain-condition ((c http-condition) (resource (eql #'todo)) (ct snooze-types:application/json))
+(defmethod snooze:explain-condition ((c http-condition) (resource (eql #'todo))
+                                     (ct snooze-types:application/json))
   "{Oooops-in-JSON}")
 
 (in-package :snooze-tests)
@@ -223,11 +224,11 @@
   (with-request ("/todo/1") (code) (is (= 200 code)))
   (with-request ("/todo/10") (code) (is (= 404 code)))
   ;; Test keywords args
-  ;; 
+  ;;
   (with-request ("/todo/1?maybe=an-unknown-symbol") (code) (is (= 200 code)))
   (with-request ("/todo/1?nokeyword=bla") (code) (is (= 400 code)))
   ;; Test "Accept:" header
-  ;; 
+  ;;
   (with-request ("/todo/1"
                  :accept "application/json") (code) (is (= 406 code)))
   (with-request ("/todo/1"
@@ -237,10 +238,11 @@
   (with-request ("/todo/1"
                  :accept "text/plain") (code) (is (= 200 code)))
   (with-request ("/todo/1"
-                 :accept "application/json; q=0.8,text/plain; garbage") (code) (is (= 200 code)))
+                 :accept "application/json; q=0.8,text/plain; garbage") (code)
+    (is (= 200 code)))
   (with-request ("/todo/1"
                  :accept "application/json;text/plain") (code) (is (= 406 code)))
-  (with-request ("/todos" 
+  (with-request ("/todos"
                  :accept "application/json;text/plain") (code payload ct)
     (is (= 200 code))
     (is (cl-ppcre:scan "NOTREALLYJSON" payload))
@@ -266,7 +268,7 @@
       (is (= 200 code))
       (is (string= payload *mock-http-payload*))))
   ;; content-type in extension
-  ;; 
+  ;;
   (with-request ("/todo/1.css") (code payload)
     (is (= 200 code))
     (is (search "CSS for TODO item 1" payload))))
@@ -297,13 +299,14 @@
 
 
 ;;; Genpath section
-;;; 
+;;;
 (defresource book-resource (verb content-type file user &optional
                                  (coiso 'genpath-default-coiso)
                                  (tal 'genpath-default-tal)
                                  &key fornix (yo 'genpath-default-yobla))
   (:genpath book-resource-path)
-  (:route (:get "text/plain" file user &optional (coiso 'default-coiso) (tal 'default-tal) &key fornix (yo 'yobla))
+  (:route (:get "text/plain" file user &optional (coiso 'default-coiso)
+                (tal 'default-tal) &key fornix (yo 'yobla))
           (write-to-string (list file user coiso tal fornix yo))))
 
 (defresource manuscript-resource (verb content-type file user &key)
@@ -331,7 +334,8 @@
   (with-request ((book-resource-path 'yo 'yeah)) (code payload)
     (is (= 200 code))
     (is (equal (read-from-string payload)
-               '(yo yeah genpath-default-coiso genpath-default-tal nil genpath-default-yobla))))
+               '(yo yeah genpath-default-coiso genpath-default-tal nil
+                 genpath-default-yobla))))
   (with-request ((manuscript-resource-path 'yo 'yeah)) (code payload)
     (is (= 200 code))
     (is (equal (read-from-string payload)
@@ -366,8 +370,8 @@
                  0
                  ""
                  ,(intern "this" crazy-package))
-               do 
-                  (is 
+               do
+                  (is
                    (equal (snooze-safe-simple-read:safe-simple-read-from-string
                            (write-to-string thing))
                           thing)))
@@ -378,14 +382,15 @@
                         (find-package "oh oh oh")
                         (make-package "oh oh oh"))))
     (unwind-protect
-         (loop for string in
-               `(,(write-to-string '(some list))
-                 "'quoted"
-                 "somestring::"
-                 "::"
-                 "something:asd:asd"
-                 "CL::::DEFUN")
-               do 
-                  (signals reader-error
-                    (snooze-safe-simple-read:safe-simple-read-from-string string)))
+         (loop
+           for string in
+           `(,(write-to-string '(some list))
+             "'quoted"
+             "somestring::"
+             "::"
+             "something:asd:asd"
+             "CL::::DEFUN")
+           do
+              (signals reader-error
+                (snooze-safe-simple-read:safe-simple-read-from-string string)))
       (delete-package crazy-package))))
