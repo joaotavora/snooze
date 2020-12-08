@@ -346,7 +346,7 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
             (multiple-value-bind (status-code payload payload-ct)
                 (apply #'handle-request
                        (funcall request-uri-fn request)
-                       (loop for (k v) on (list
+                       (loop for (k v) on (list 
                                            :method (funcall request-method-fn request)
                                            :accept (funcall header-in-fn :accept request)
                                            :content-type (funcall header-in-fn :content-type request))
