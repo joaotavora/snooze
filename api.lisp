@@ -357,6 +357,6 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
               (or payload ""))))))))
 
 (defmethod backend-payload ((backend (eql :hunchentoot)) (type snooze-types:text))
-  (let ((probe (funcall (read-from-string "hunchentoot:raw-post-data"))))
+  (let ((probe (apply (read-from-string "hunchentoot:raw-post-data") '(:force-text t))))
     (assert (stringp probe) nil "Asked for a string, but request carries a ~a" (type-of probe))
     probe))
