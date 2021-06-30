@@ -8,7 +8,7 @@
 ;;; "receiving from client".
 ;;;
 (defpackage :snooze-verbs (:use)
-            (:export #:http-verb #:get #:post #:put #:delete
+            (:export #:http-verb #:get #:post #:patch #:put #:delete
                      #:content-verb
                      #:receiving-verb
                      #:sending-verb))
@@ -19,6 +19,7 @@
 (cl:defclass snooze-verbs:receiving-verb (snooze-verbs:content-verb) ())
 (cl:defclass snooze-verbs:sending-verb   (snooze-verbs:content-verb) ())
 (cl:defclass snooze-verbs:post           (snooze-verbs:receiving-verb) ())
+(cl:defclass snooze-verbs:patch          (snooze-verbs:receiving-verb) ())
 (cl:defclass snooze-verbs:put            (snooze-verbs:receiving-verb) ())
 (cl:defclass snooze-verbs:get            (snooze-verbs:sending-verb) ())
 
