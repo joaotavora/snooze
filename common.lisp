@@ -1,5 +1,14 @@
 (in-package #:snooze-common)
-
+
+;;; Special variables defined later, but used in this file
+(declaim (special
+          snooze::*catch-errors*
+          snooze::*catch-http-conditions*
+          *home-resource*
+          *mime-type-hash*
+          *resource-filter*
+          *resource-name-function*
+          *uri-content-types-function*))
 
 ;;; Verbs
 ;;;
@@ -524,6 +533,8 @@ As a second value, return what RFC2388:PARSE-HEADER"
 
 ;;; Some external stuff but hidden away from the main file
 ;;;
+(defvar *useful-backtraces* nil "Useful backtraces.")
+
 (defmethod explain-condition-failsafe (condition resource &optional verbose-p)
   (declare (ignore resource))
   (let* ((original-condition (and (typep condition 'resignalled-condition)
@@ -691,8 +702,6 @@ out with NO-SUCH-ROUTE."
                               501 ; unimplemented
                               ))))
 
-(defvar *useful-backtraces* nil "Useful backtraces.")
-
 (defmacro saving-useful-backtrace (args &body body)
   (declare (ignore args))
   `(handler-bind
@@ -706,6 +715,13 @@ out with NO-SUCH-ROUTE."
                        *useful-backtraces*
                        :test (lambda (a b) (eq (first a) (first b))))))))
      ,@body))
+
+(defvar *resource*)
+(setf (documentation '*resource* 'variable)
+      "Bound early in HANDLE-REQUEST-1 to nil or to a RESOURCE.
+Used by POLITELY-EXPLAINING-CONDITIONS and
+BRUTALLY-EXPLAINING-CONDITIONS to pass a resource to
+EXPLAIN-CONDITION.")
 
 (defun call-brutally-explaining-conditions (fn)
   (let (code condition original-condition *useful-backtraces*)
@@ -839,13 +855,6 @@ Honours the :VERBOSE option to *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*."
   "Explain conditions in BODY taking the client accepts into account.
 Honours *CATCH-ERRORS* and *CATCH-HTTP-CONDITIONS*"
   `(call-politely-explaining-conditions ,client-accepts (lambda () ,@body)))
-
-(defvar *resource*)
-(setf (documentation '*resource* 'variable)
-      "Bound early in HANDLE-REQUEST-1 to nil or to a RESOURCE.
-Used by POLITELY-EXPLAINING-CONDITIONS and
-BRUTALLY-EXPLAINING-CONDITIONS to pass a resource to
-EXPLAIN-CONDITION.")
 
 (defun handle-request-1 (uri method accept &optional content-type)
   (catch 'response
