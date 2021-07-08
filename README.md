@@ -573,6 +573,12 @@ quickly let you jump into the action:
 (clack:clackup (snooze:make-clack-app) :port 9003)
 ```
 
+Snooze can also function as middleware for other clack apps:
+
+```lisp
+(clack:clackup (snooze:make-clack-middleware) ... (my-clack-app) :port 9003)
+```
+
 But Snooze doesn't "require" Clack or Hunchentoot in any sense. So if
 you want to use any other backend, I suggest you take a look at the
 implementations of `make-hunchentoot-app` and `make-clack-app`

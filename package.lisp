@@ -101,6 +101,7 @@
    #:content-class-name
    #:*clack-request-env*
    #:make-clack-app
+   #:make-clack-middleware
    #:make-hunchentoot-app
    ;; default values for some options
    ;;

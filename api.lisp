@@ -315,6 +315,17 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
     (read-sequence str (getf *clack-request-env* :raw-body))
     str))
 
+(defun make-clack-middleware (&optional bindings)
+  "Install Snooze in a Clack stack as middleware.
+
+A wrapper around make-clack-app that passes requests down the stack when a 404 is returned by Snooze."
+  (lambda (app)
+    (let ((snooze-app (make-clack-app bindings)))
+      (lambda (env)
+        (let ((results (funcall snooze-app env)))
+          (if (eq 404 (car results))
+              (funcall app env)
+              results))))))
 
 
 ;;; Direct hunchentoot integration
