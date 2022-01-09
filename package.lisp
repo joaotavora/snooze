@@ -1,7 +1,7 @@
 (defpackage #:snooze-common
   (:use #:cl)
   (:export
-   #:ensure-atom
+   #:ensure-gf-lambda-var
    #:content-type-spec-or-lose
    #:verb-spec-or-lose
    #:parse-defroute-args
