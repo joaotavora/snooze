@@ -238,10 +238,11 @@
         (t
          (list type-spec t))))
 
-(defun ensure-atom (thing)
-  (if (listp thing)
-      (ensure-atom (first thing))
-      thing))
+(defun ensure-gf-lambda-var (thing)
+  (etypecase thing
+    (atom thing)
+    ((cons symbol) (car thing))
+    ((cons cons) thing)))
 
 (defun ensure-uri (maybe-uri)
   (etypecase maybe-uri
@@ -465,7 +466,7 @@ As a second value, return what RFC2388:PARSE-HEADER"
          (proper-lambda-list
            `(,verb-spec ,type-spec ,@(nthcdr 2 lambda-list)))
          (simplified-lambda-list
-           (mapcar #'ensure-atom proper-lambda-list)))
+           (mapcar #'ensure-gf-lambda-var proper-lambda-list)))
     `(progn
        (unless (find-resource ',name)
          (defresource ,name ,simplified-lambda-list))
@@ -512,7 +513,7 @@ As a second value, return what RFC2388:PARSE-HEADER"
                  else
                    collect option))
          (simplified-lambda-list (mapcar #'(lambda (argspec)
-                                             (ensure-atom argspec))
+                                             (ensure-gf-lambda-var argspec))
                                          lambda-list)))
     `(progn
        ,@(if genpath-form `(,genpath-form))
