@@ -135,7 +135,7 @@ server.")
                          :format-control (or format-control (reason-for status-code))
                          :format-arguments format-args))
 
-(defgeneric explain-condition (condition resource content-type )
+(defgeneric explain-condition (condition resource content-type)
   (:documentation "Explain CONDITION for RESOURCE in CONTENT-TYPE."))
 
 (defgeneric uri-to-arguments (resource relative-uri)
@@ -307,7 +307,9 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
                                      when v collect k and collect v))
                       `(,status-code
                         (:content-type ,payload-ct)
-                        (,payload)))))))
+                        ,(if (typep payload '(vector (unsigned-byte 8)))
+                             payload
+                             (list payload))))))))
 
 (defmethod backend-payload ((backend (eql :clack)) (type snooze-types:text))
   (let* ((len (getf *clack-request-env* :content-length))
@@ -346,7 +348,7 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
             (multiple-value-bind (status-code payload payload-ct)
                 (apply #'handle-request
                        (funcall request-uri-fn request)
-                       (loop for (k v) on (list 
+                       (loop for (k v) on (list
                                            :method (funcall request-method-fn request)
                                            :accept (funcall header-in-fn :accept request)
                                            :content-type (funcall header-in-fn :content-type request))
