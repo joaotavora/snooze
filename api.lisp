@@ -274,6 +274,7 @@ BACKEND defaults to *BACKEND*"
 ;;; Clack integration
 ;;;
 (defvar *clack-request-env*)
+(defvar *clack-response-headers*)
 
 (setf (documentation '*clack-request-env* 'variable)
       "Bound in function made by MAKE-CLACK-APP to Clack environment.")
@@ -285,7 +286,8 @@ Pass this to CLACK:CLACKUP.
 
 Dynamically binds *CLACK-REQUEST-ENV* around every call to
 HANDLE-REQUEST so you can access the backend-specific from routes
-and/or EXPLAIN-CONDITION. Also binds *BACKEND* to :CLACK.
+and/or EXPLAIN-CONDITION. Dynamically binds *CLACK-RESPONSE-HEADERS*
+in order to set response headers. Binds *BACKEND* to :CLACK.
 
 BINDINGS is an alist of (SYMBOL . VALUE) which is are also
 dynamically-bound around HANDLE-REQUEST. You can use it to pass values
@@ -293,6 +295,7 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
 *RESOURCES-FUNCTION*, *RESOURCE-NAME-FUNCTION*, or
 *URI-CONTENT-TYPES-FUNCTION*."
   (lambda (env) (let ((*clack-request-env* env)
+                      (*clack-response-headers* nil)
                       (*backend* :clack))
                   (progv
                       (mapcar #'car bindings)
@@ -306,7 +309,7 @@ of special variables that affect Snooze, like *HOME-RESOURCE*,
                                      by #'cddr
                                      when v collect k and collect v))
                       `(,status-code
-                        (:content-type ,payload-ct)
+                        (:content-type ,payload-ct ,@*clack-response-headers*)
                         (,payload)))))))
 
 (defmethod backend-payload ((backend (eql :clack)) (type snooze-types:text))
