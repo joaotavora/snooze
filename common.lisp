@@ -933,16 +933,18 @@ EXPLAIN-CONDITION.")
 ;;;
 (defun default-resource-name (uri)
   "Default value for *RESOURCE-NAME-FUNCTION*, which see."
-  (let* ((first-slash-or-qmark (position-if #'(lambda (char)
-                                                (member char '(#\/ #\?)))
-                                            uri
-                                            :start 1)))
-    (values (cond (first-slash-or-qmark
-                   (subseq uri 1 first-slash-or-qmark))
-                  (t
-                   (subseq uri 1)))
-            (if first-slash-or-qmark
-                (subseq uri first-slash-or-qmark)))))
+  (if (string= "" uri)
+    ""
+    (let* ((first-slash-or-qmark (position-if #'(lambda (char)
+                                                  (member char '(#\/ #\?)))
+                                              uri
+                                              :start 1)))
+      (values (cond (first-slash-or-qmark
+                     (subseq uri 1 first-slash-or-qmark))
+                    (t
+                     (subseq uri 1)))
+              (if first-slash-or-qmark
+                  (subseq uri first-slash-or-qmark))))))
 
 (defun search-for-extension-content-type (uri-path)
   "Default value for *URI-CONTENT-TYPES-FUNCTION*, which see."
@@ -1070,11 +1072,3 @@ EXPLAIN-CONDITION.")
              (not (symbol-package object)))
         (princ-to-string (string-downcase (symbol-name object)))
         (write-to-string object))))
-
-
-
-
-
-
-
-
